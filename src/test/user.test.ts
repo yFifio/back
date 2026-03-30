@@ -8,6 +8,7 @@ type TestRequest = Partial<Request> & {
   body?: { nome?: string; email?: string; senha?: string; cpf?: string };
   params?: { id?: string };
   userId?: number;
+  isAdmin?: boolean;
 };
 
 type TestResponse = Response & { status: Mock; json: Mock };
@@ -130,7 +131,7 @@ describe('Regras de Negócio do UserController', () => {
     expect(res.json).toHaveBeenCalledWith({ error: 'CPF já cadastrado' });
   });
 
-  it('Permite updateById apenas quando o id é do próprio usuário', async () => {
+  it('Permite updateById quando é admin', async () => {
     const target: MockUserData = {
       id: 1,
       nome: 'Cliente',
@@ -147,6 +148,7 @@ describe('Regras de Negócio do UserController', () => {
 
     const req = makeReq({
       userId: 1,
+      isAdmin: true,
       params: { id: '1' },
       body: { nome: 'Novo Nome', cpf: '52998224725', email: 'hacker@teste.com' }
     });
@@ -161,13 +163,13 @@ describe('Regras de Negócio do UserController', () => {
     expect(responseJson?.user?.cpf).toBe('52998224725');
   });
 
-  it('Não permite que usuário edite outro usuário via updateById', async () => {
-    const req = makeReq({ userId: 1, params: { id: '2' }, body: { nome: 'x' } });
+  it('Não permite updateById sem ser admin', async () => {
+    const req = makeReq({ userId: 1, isAdmin: false, params: { id: '2' }, body: { nome: 'x' } });
     const res = makeRes();
 
     await userCtrl.updateById(req, res);
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Você só pode editar o próprio usuário' });
+    expect(res.json).toHaveBeenCalledWith({ error: 'Apenas administradores podem editar usuários' });
   });
 
   it('Login com credenciais válidas retorna JWT e user', async () => {

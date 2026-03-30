@@ -20,6 +20,10 @@ Order.init({
         type: DataTypes.STRING,
         allowNull: true,
     },
+    customer_cpf: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
     subtotal_price: {
         type: DataTypes.DECIMAL(10, 2),
         allowNull: true,
@@ -37,12 +41,31 @@ Order.init({
         type: DataTypes.DECIMAL(10, 2),
         allowNull: false,
     },
+    delivery_address: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    delivery_city: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    delivery_state: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    delivery_zip: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
+    delivery_phone: {
+        type: DataTypes.STRING,
+        allowNull: true,
+    },
     status: {
-        type: DataTypes.ENUM('pending', 'paid', 'delivered', 'cancelled'),
+        type: DataTypes.ENUM('pending', 'paid', 'shipped', 'delivered', 'cancelled'),
         defaultValue: 'pending',
     },
 }, {
     sequelize,
-    // note: database uses lowercase plural 'orders' (see foreign key constraint error)
     tableName: 'orders',
 });

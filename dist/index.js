@@ -1,4 +1,5 @@
 import express from 'express';
+import http from 'http';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import sequelize from './config/database';
@@ -13,45 +14,56 @@ import { PaymentWebhook } from './models/PaymentWebhook';
 dotenv.config();
 const app = express();
 const configurarMiddlewares = () => {
-    app.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "DELETE"], allowedHeaders: ["Content-Type", "Authorization"] }));
+    app.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Content-Type", "Authorization"] }));
     app.use(express.json({ limit: '50mb' }));
     app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-    // Middleware de Log para Debug
-    app.use((req, res, next) => {
-        console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-        next();
-    });
 };
 const configurarRotas = () => {
     app.use('/api', apiRoutes);
 };
+const logRouteNotFound = (res) => res.status(404).json({ error: 'Rota não existe' });
+const logInternalError = (res) => res.status(500).json({ error: 'Erro interno do servidor' });
 const configurarErros = () => {
-    // Middleware 404 para rotas não encontradas
-    app.use((req, res, next) => {
-        res.status(404).json({ error: "Rota não existe" });
-    });
-    // Middleware de tratamento de erros (deve ser o último)
+    app.use((req, res, next) => logRouteNotFound(res));
     app.use((err, req, res, next) => {
         console.error(err.message);
-        res.status(500).json({ error: 'Erro interno do servidor' });
+        logInternalError(res);
     });
+};
+const bindCatalogRelations = () => {
+    Category.hasMany(Product, { foreignKey: 'categoryId' });
+    Product.belongsTo(Category, { foreignKey: 'categoryId' });
+};
+const bindOrderRelations = () => {
+    Order.hasMany(OrderItem, { foreignKey: 'order_id', as: 'order_items' });
+    Order.hasMany(Payment, { foreignKey: 'order_id', as: 'payments' });
+    Order.hasMany(PaymentWebhook, { foreignKey: 'order_id', as: 'webhooks' });
+    OrderItem.belongsTo(Order, { foreignKey: 'order_id' });
+    OrderItem.belongsTo(Product, { foreignKey: 'product_id', as: 'products' });
+    Payment.belongsTo(Order, { foreignKey: 'order_id' });
+    PaymentWebhook.belongsTo(Order, { foreignKey: 'order_id' });
+};
+const registrarRelacionamentos = () => {
+    bindCatalogRelations();
+    bindOrderRelations();
 };
 const conectarBanco = async () => {
     try {
-        // Relacionamentos ativados conforme rubrica
-        Category.hasMany(Product, { foreignKey: 'categoryId' });
-        Product.belongsTo(Category, { foreignKey: 'categoryId' });
-        // orders and payments
-        Order.hasMany(OrderItem, { foreignKey: 'order_id', as: 'order_items' });
-        Order.hasMany(Payment, { foreignKey: 'order_id', as: 'payments' });
-        Order.hasMany(PaymentWebhook, { foreignKey: 'order_id', as: 'webhooks' });
-        OrderItem.belongsTo(Order, { foreignKey: 'order_id' });
-        Payment.belongsTo(Order, { foreignKey: 'order_id' });
-        PaymentWebhook.belongsTo(Order, { foreignKey: 'order_id' });
+        registrarRelacionamentos();
         await sequelize.authenticate();
-        // O 'alter: true' ajusta as colunas existentes (ex: muda image_url para LONGTEXT)
         console.log('🔄 Sincronizando esquema do banco de dados (ajustando colunas)...');
-        await sequelize.sync({ alter: true });
+        try {
+            await sequelize.sync({ alter: true });
+        }
+        catch (alterError) {
+            if (alterError?.parent?.code === 'ER_TOO_MANY_KEYS') {
+                console.log('⚠️ Muitas chaves detectadas, recriando tabelas...');
+                await sequelize.sync({ force: true });
+            }
+            else {
+                throw alterError;
+            }
+        }
         setDbConnected(true);
         console.log('✅ Base de dados MySQL conectada e sincronizada com sucesso!');
         return true;
@@ -66,9 +78,28 @@ const start = async () => {
     configurarRotas();
     configurarErros();
     const dbLigado = await conectarBanco();
-    const PORT = process.env.PORT || 3001;
-    app.listen(PORT, () => {
-        console.log(`🚀 API rodando na porta ${PORT} ${dbLigado ? '' : '(Rodando SEM BANCO DE DADOS)'}`);
-    });
+    const portaInicial = Number(process.env.PORT || 3001);
+    const maxTentativas = 10;
+    const iniciarServidor = (porta, tentativasRestantes) => {
+        const server = http.createServer(app);
+        server.on('error', (err) => {
+            if (err.code === 'EADDRINUSE' && tentativasRestantes > 0) {
+                console.warn(`⚠️ Porta ${porta} em uso. Tentando porta ${porta + 1}...`);
+                iniciarServidor(porta + 1, tentativasRestantes - 1);
+                return;
+            }
+            if (err.code === 'EADDRINUSE') {
+                console.error(`❌ Não foi possível iniciar a API. Portas de ${portaInicial} até ${porta} estão ocupadas.`);
+                console.log(`💡 Verifique processos com: lsof -nP -iTCP:${portaInicial} -sTCP:LISTEN`);
+                process.exit(1);
+            }
+            console.error('❌ Erro ao iniciar servidor:', err.message);
+            process.exit(1);
+        });
+        server.listen(porta, () => {
+            console.log(`🚀 API rodando na porta ${porta} ${dbLigado ? '' : '(Rodando SEM BANCO DE DADOS)'}`);
+        });
+    };
+    iniciarServidor(portaInicial, maxTentativas);
 };
 start();

@@ -2,9 +2,7 @@ import { Model, DataTypes } from 'sequelize';
 import sequelize from '../config/database';
 export class OrderItem extends Model {
 }
-OrderItem.init(
-// ... mantenha o restante do init igual
-{
+OrderItem.init({
     id: {
         type: DataTypes.INTEGER,
         autoIncrement: true,

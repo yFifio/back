@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import { Order } from '../models/Order';
 import { Payment } from '../models/Payment';
 import { PaymentWebhook } from '../models/PaymentWebhook';
-import { MercadoPagoConfig, Payment as MPPayment } from 'mercadopago';
+import { MercadoPagoConfig, Payment as MPPayment, MerchantOrder as MPMerchantOrder } from 'mercadopago';
+import { AuthRequest } from '../types';
 
 interface MercadoPagoPaymentData {
   external_reference?: string | number;
@@ -12,6 +13,28 @@ interface MercadoPagoPaymentData {
   transaction_amount?: number;
   payment_method?: { id?: string | number };
   payer?: { email?: string };
+}
+
+interface MercadoPagoNotificationPayload {
+  id?: string | number;
+  topic?: string;
+  type?: string;
+  action?: string;
+  resource?: string | { id?: string | number };
+  data?: { id?: string | number };
+}
+
+interface MercadoPagoMerchantOrderData {
+  id?: string | number;
+  external_reference?: string | number;
+  payments?: Array<{
+    id?: string | number;
+    status?: string;
+    status_detail?: string;
+    transaction_amount?: number;
+    payment_method_id?: string;
+    payer?: { email?: string };
+  }>;
 }
 
 interface NormalizedPayment {
@@ -57,6 +80,54 @@ export class PaymentNotificationController {
   private async processPaymentById(paymentId: string) {
     const payment = await this.fetchPaymentDetails(paymentId);
     if (payment) await this.processPayment(payment);
+  }
+
+  private async fetchMerchantOrderDetails(merchantOrderId: string) {
+    try {
+      const merchantOrder = new MPMerchantOrder(this.client);
+      const response = await merchantOrder.get({ merchantOrderId });
+      return response as MercadoPagoMerchantOrderData;
+    } catch (error) {
+      console.error(`[WebhookMP] Falha ao buscar merchant_order ${merchantOrderId}:`, error);
+      return null;
+    }
+  }
+
+  private chooseRelevantMerchantOrderPayment(merchantOrder: MercadoPagoMerchantOrderData) {
+    const payments = merchantOrder.payments || [];
+    if (payments.length === 0) return null;
+
+    const approved = payments.find((payment) => payment.status === 'approved');
+    if (approved) return approved;
+
+    const pendingLike = payments.find((payment) => ['in_process', 'pending', 'authorized'].includes(String(payment.status || '')));
+    if (pendingLike) return pendingLike;
+
+    return payments[0] || null;
+  }
+
+  private async processMerchantOrderById(merchantOrderId: string) {
+    const merchantOrder = await this.fetchMerchantOrderDetails(merchantOrderId);
+    if (!merchantOrder?.external_reference) {
+      console.warn(`[WebhookMP] merchant_order ${merchantOrderId} sem external_reference`);
+      return;
+    }
+
+    const selectedPayment = this.chooseRelevantMerchantOrderPayment(merchantOrder);
+    if (!selectedPayment?.id) {
+      console.warn(`[WebhookMP] merchant_order ${merchantOrderId} sem pagamentos válidos`);
+      return;
+    }
+
+    await this.processPayment({
+      id: selectedPayment.id,
+      external_reference: merchantOrder.external_reference,
+      status: selectedPayment.status,
+      status_detail: selectedPayment.status_detail,
+      transaction_amount: selectedPayment.transaction_amount,
+      payment_method: { id: selectedPayment.payment_method_id },
+      payer: { email: selectedPayment.payer?.email },
+    });
   }
 
   private async processPayment(paymentData: MercadoPagoPaymentData) {
@@ -160,7 +231,7 @@ export class PaymentNotificationController {
     };
   }
 
-  getPaymentStatus = async (req: Request, res: Response) => {
+  getPaymentStatus = async (req: AuthRequest, res: Response) => {
     try {
       return await this.getPaymentStatusInternal(req, res);
     } catch (error) {
@@ -170,28 +241,82 @@ export class PaymentNotificationController {
   }
 
   private async handleNotificationInternal(req: Request, res: Response) {
-    const { id, topic, resource, data } = req.body;
-    console.log(`[WebhookMP] Notificação recebida: topic=${topic}, id=${id}`);
+    const payload = this.extractNotificationPayload(req);
+    const topic = this.extractNotificationTopic(payload);
+    const paymentId = this.extractNotificationPaymentId(payload);
+
+    console.log(`[WebhookMP] Notificação recebida: topic=${topic}, paymentId=${paymentId || payload.id || 'N/A'}`);
     if (!this.shouldProcessTopic(topic)) return this.ackIgnoredTopic(topic, res);
-    if (this.isMerchantOrderPing(topic, data)) return res.sendStatus(200);
-    if (topic === 'payment' && resource?.id) await this.processPaymentById(resource.id);
+    if (topic === 'merchant_order' && paymentId) {
+      await this.processMerchantOrderById(paymentId);
+      return res.sendStatus(200);
+    }
+    if (topic === 'payment' && paymentId) await this.processPaymentById(paymentId);
     return res.sendStatus(200);
   }
 
-  private async getPaymentStatusInternal(req: Request, res: Response) {
+  private async getPaymentStatusInternal(req: AuthRequest, res: Response) {
     const orderId = req.params.id;
-    const order = await Order.findByPk(orderId);
+    const paymentId = this.getPaymentIdFromRequest(req);
+    let order = await Order.findByPk(orderId);
     if (!order) return this.orderNotFound(res);
+
+    if (!this.usuarioPodeAcessarPedido(req, order)) {
+      return res.status(403).json({ error: 'Acesso negado' });
+    }
+
+    if (paymentId && order.status !== 'paid') {
+      await this.processPaymentById(paymentId);
+      order = await Order.findByPk(orderId);
+      if (!order) return this.orderNotFound(res);
+    }
+
     const latestWebhook = await this.getLatestWebhook(orderId);
     return res.json(this.buildStatusResponse(order, latestWebhook));
   }
 
-  private shouldProcessTopic(topic: string) {
-    return topic === 'payment' || topic === 'merchant_order';
+  private extractNotificationPayload(req: Request): MercadoPagoNotificationPayload {
+    const query = ((req.query as Record<string, string | undefined>) || {}) as Record<string, string | undefined>;
+    const body = ((req.body || {}) as MercadoPagoNotificationPayload) || {};
+
+    return {
+      ...body,
+      id: body.id ?? query.id,
+      topic: body.topic ?? query.topic,
+      type: body.type ?? query.type,
+      action: body.action ?? query.action,
+      resource: body.resource ?? query.resource,
+      data: body.data ?? (query['data.id'] ? { id: query['data.id'] } : undefined),
+    };
   }
 
-  private isMerchantOrderPing(topic: string, data: { id?: string }) {
-    return topic === 'merchant_order' && Boolean(data?.id);
+  private extractNotificationTopic(payload: MercadoPagoNotificationPayload) {
+    const rawTopic = payload.topic || payload.type || payload.action?.split('.')[0] || '';
+    return String(rawTopic);
+  }
+
+  private extractNotificationPaymentId(payload: MercadoPagoNotificationPayload) {
+    if (typeof payload.resource === 'object' && payload.resource?.id != null) {
+      return String(payload.resource.id);
+    }
+
+    if (typeof payload.resource === 'string') {
+      const resourceId = payload.resource.split('/').filter(Boolean).pop();
+      if (resourceId) return resourceId;
+    }
+
+    if (payload.data?.id != null) return String(payload.data.id);
+    if ((payload.topic === 'payment' || payload.type === 'payment') && payload.id != null) return String(payload.id);
+    return null;
+  }
+
+  private getPaymentIdFromRequest(req: Request) {
+    const query = req.query as Record<string, string | undefined>;
+    return query.payment_id || query.paymentId || undefined;
+  }
+
+  private shouldProcessTopic(topic: string) {
+    return topic === 'payment' || topic === 'merchant_order';
   }
 
   private ackIgnoredTopic(topic: string, res: Response) {
@@ -210,6 +335,12 @@ export class PaymentNotificationController {
 
   private buildStatusResponse(order: Order, latestWebhook: PaymentWebhook | null) {
     return { order_id: order.id, order_status: order.status, latest_webhook: latestWebhook };
+  }
+
+  private usuarioPodeAcessarPedido(req: AuthRequest, order: Order) {
+    if (!req.userId) return false;
+    if (req.isAdmin) return true;
+    return Number(order.customer_id) === Number(req.userId);
   }
 
   private orderNotFound(res: Response) {

@@ -1,4 +1,3 @@
-// server/src/models/Produtos.ts
 import { Model, DataTypes } from 'sequelize';
 import sequelize from '../config/database';
 export class Product extends Model {
@@ -23,15 +22,30 @@ Product.init({
     },
     category: {
         type: DataTypes.STRING,
-        allowNull: true, // Permite nulo temporariamente para evitar erros com produtos antigos
+        allowNull: true,
+    },
+    categoryId: {
+        type: DataTypes.INTEGER.UNSIGNED,
+        allowNull: true,
+        references: {
+            model: 'categories',
+            key: 'id',
+        },
     },
     book_category: {
         type: DataTypes.STRING,
         allowNull: true,
     },
     image_url: {
-        // MUDANÇA CRÍTICA: TEXT('long') gera uma coluna LONGTEXT no MySQL
         type: DataTypes.TEXT('long'),
+        allowNull: true,
+    },
+    pdf_url: {
+        type: DataTypes.TEXT('long'),
+        allowNull: true,
+    },
+    pdf_file_name: {
+        type: DataTypes.STRING,
         allowNull: true,
     },
     age_range: {

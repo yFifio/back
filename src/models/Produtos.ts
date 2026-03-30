@@ -10,6 +10,8 @@ export class Product extends Model {
   public declare categoryId: number | null;
   public declare book_category: string | null;
   public declare image_url: string;
+  public declare pdf_url: string | null;
+  public declare pdf_file_name: string | null;
   public declare age_range: string;
   public declare is_active: boolean;
   public declare discount_percent: number;
@@ -53,6 +55,14 @@ Product.init(
     },
     image_url: {
       type: DataTypes.TEXT('long'), 
+      allowNull: true,
+    },
+    pdf_url: {
+      type: DataTypes.TEXT('long'),
+      allowNull: true,
+    },
+    pdf_file_name: {
+      type: DataTypes.STRING,
       allowNull: true,
     },
     age_range: {

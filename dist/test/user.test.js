@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { UserController } from '../controllers/UserController';
 import { User } from '../models/User';
-// mock flexível do modelo
+import bcrypt from 'bcrypt';
+const makeReq = (data) => data;
+const makeRes = () => ({ status: vi.fn().mockReturnThis(), json: vi.fn() });
 vi.mock('../models/User', () => {
     const findByPk = vi.fn();
     const create = vi.fn().mockResolvedValue({ id: 2, nome: 'Novo', email: 'novo@teste.com' });
@@ -13,41 +15,36 @@ vi.mock('../models/User', () => {
 describe('Regras de Negócio do UserController', () => {
     const userCtrl = new UserController();
     beforeEach(() => {
-        // reset implementation and call history so each spec starts fresh
         vi.resetAllMocks();
     });
     it('Não deve permitir o cadastro de um e-mail inválido', async () => {
-        const req = { body: { nome: 'Teste', email: 'invalido', senha: '12345678', cpf: '12345678901' } };
-        const res = {
-            status: vi.fn().mockReturnThis(),
-            json: vi.fn()
-        };
+        const req = makeReq({ body: { nome: 'Teste', email: 'invalido', senha: '12345678', cpf: '12345678901' } });
+        const res = makeRes();
         await userCtrl.register(req, res);
         expect(res.status).toHaveBeenCalledWith(400);
         expect(res.json).toHaveBeenCalledWith({ error: 'Email inválido' });
     });
     it('Não deve permitir o cadastro de um CPF inválido', async () => {
-        const req = { body: { nome: 'Teste', email: 'teste@ok.com', senha: '12345678', cpf: '111' } };
-        const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+        const req = makeReq({ body: { nome: 'Teste', email: 'teste@ok.com', senha: '12345678', cpf: '111' } });
+        const res = makeRes();
         await userCtrl.register(req, res);
         expect(res.status).toHaveBeenCalledWith(400);
         expect(res.json).toHaveBeenCalledWith({ error: 'CPF inválido' });
     });
     it('Falha registro quando email já está em uso', async () => {
-        User.findOne.mockResolvedValueOnce({ id: 1 }); // simula email existente
-        const req = { body: { nome: 'X', email: 'dup@teste.com', senha: 'SenhaSegura1', cpf: '52998224725' } }; // CPF válido
-        const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+        User.findOne.mockResolvedValueOnce({ id: 1 });
+        const req = makeReq({ body: { nome: 'X', email: 'dup@teste.com', senha: 'SenhaSegura1', cpf: '52998224725' } });
+        const res = makeRes();
         await userCtrl.register(req, res);
         expect(res.status).toHaveBeenCalledWith(400);
         expect(res.json).toHaveBeenCalledWith({ error: 'Usuário já existe' });
     });
     it('Falha registro quando CPF já está em uso', async () => {
-        // primeiro procura email, retorna null
         User.findOne
             .mockResolvedValueOnce(null)
-            .mockResolvedValueOnce({ id: 2 }); // cpf duplicado
-        const req = { body: { nome: 'X', email: 'novo@teste.com', senha: 'SenhaSegura1', cpf: '52998224725' } }; // CPF válido, mas encarregado como duplicado
-        const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+            .mockResolvedValueOnce({ id: 2 });
+        const req = makeReq({ body: { nome: 'X', email: 'novo@teste.com', senha: 'SenhaSegura1', cpf: '52998224725' } });
+        const res = makeRes();
         await userCtrl.register(req, res);
         expect(res.status).toHaveBeenCalledWith(400);
         expect(res.json).toHaveBeenCalledWith({ error: 'CPF já cadastrado' });
@@ -57,7 +54,7 @@ describe('Regras de Negócio do UserController', () => {
             id: 1,
             nome: 'Lucas',
             email: 'lucas@original.com',
-            cpf: '52998224725', // valid CPF example
+            cpf: '52998224725',
             isAdmin: false,
             update: vi.fn().mockImplementation(function (novosDados) {
                 Object.assign(this, novosDados);
@@ -65,15 +62,11 @@ describe('Regras de Negócio do UserController', () => {
             })
         };
         User.findByPk.mockResolvedValueOnce(fakeUser).mockResolvedValueOnce(fakeUser);
-        const req = {
+        const req = makeReq({
             userId: 1,
-            // cpf provided but same as existing to avoid validation error
             body: { nome: 'Nome Atualizado', email: 'hacker@tentativa.com', cpf: '52998224725' }
-        };
-        const res = {
-            status: vi.fn().mockReturnThis(),
-            json: vi.fn()
-        };
+        });
+        const res = makeRes();
         await userCtrl.updateMe(req, res);
         const jsonMock = res.json;
         const responseJson = jsonMock.mock.calls[0] && jsonMock.mock.calls[0][0];
@@ -82,50 +75,73 @@ describe('Regras de Negócio do UserController', () => {
         expect(responseJson?.user?.cpf).toBe('52998224725');
     });
     it('updateMe falha se tenta mudar cpf para existente', async () => {
-        // Setup existing user and another with same cpf
         User.findByPk
             .mockResolvedValueOnce({ id: 1, cpf: '11122233344', update: vi.fn() })
             .mockResolvedValueOnce({ id: 1, cpf: '11122233344' });
-        User.findOne.mockResolvedValueOnce({ id: 2 }); // someone else has this cpf
-        const req = { userId: 1, body: { nome: 'Lucas', cpf: '52998224725' } }; // valid format but duplicates in DB
-        const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+        User.findOne.mockResolvedValueOnce({ id: 2 });
+        const req = makeReq({ userId: 1, body: { nome: 'Lucas', cpf: '52998224725' } });
+        const res = makeRes();
         await userCtrl.updateMe(req, res);
         expect(res.status).toHaveBeenCalledWith(400);
         expect(res.json).toHaveBeenCalledWith({ error: 'CPF já cadastrado' });
     });
-    it('Admin pode atualizar outros usuários, mas email e cpf não mudam', async () => {
-        // admin auth check
-        const adminObj = { id: 1, isAdmin: true };
+    it('Permite updateById quando é admin', async () => {
         const target = {
-            id: 2,
+            id: 1,
             nome: 'Cliente',
             email: 'cliente@orig.com',
-            cpf: '99988877766',
+            cpf: '52998224725',
             update: vi.fn().mockImplementation(function (novosDados) {
                 Object.assign(this, novosDados);
                 return this;
             })
         };
-        // três chamadas: admin check, load target, reload target after update
         User.findByPk
-            .mockResolvedValueOnce(adminObj)
             .mockResolvedValueOnce(target)
             .mockResolvedValueOnce(target);
-        const req = { userId: 1, params: { id: '2' }, body: { nome: 'Novo Nome', email: 'hacker@teste.com' } };
-        const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+        const req = makeReq({
+            userId: 1,
+            isAdmin: true,
+            params: { id: '1' },
+            body: { nome: 'Novo Nome', cpf: '52998224725', email: 'hacker@teste.com' }
+        });
+        const res = makeRes();
         await userCtrl.updateById(req, res);
         const jsonMock = res.json;
         const responseJson = jsonMock.mock.calls[0] && jsonMock.mock.calls[0][0];
         expect(responseJson?.user?.nome).toBe('Novo Nome');
         expect(responseJson?.user?.email).toBe('cliente@orig.com');
-        expect(responseJson?.user?.cpf).toBe('99988877766');
+        expect(responseJson?.user?.cpf).toBe('52998224725');
     });
-    it('Não permite que usuário não-admin use updateById', async () => {
-        User.findByPk.mockResolvedValueOnce({ id: 1, isAdmin: false });
-        const req = { userId: 1, params: { id: '2' }, body: { nome: 'x' } };
-        const res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    it('Não permite updateById sem ser admin', async () => {
+        const req = makeReq({ userId: 1, isAdmin: false, params: { id: '2' }, body: { nome: 'x' } });
+        const res = makeRes();
         await userCtrl.updateById(req, res);
         expect(res.status).toHaveBeenCalledWith(403);
-        expect(res.json).toHaveBeenCalledWith({ error: 'Acesso negado' });
+        expect(res.json).toHaveBeenCalledWith({ error: 'Apenas administradores podem editar usuários' });
+    });
+    it('Login com credenciais válidas retorna JWT e user', async () => {
+        const hashed = await bcrypt.hash('SenhaSegura1', 10);
+        User.findOne.mockResolvedValueOnce({
+            id: 10,
+            nome: 'Lucas',
+            email: 'lucas@teste.com',
+            cpf: '52998224725',
+            isAdmin: false,
+            senha: hashed,
+        });
+        const req = makeReq({ body: { email: 'lucas@teste.com', senha: 'SenhaSegura1' } });
+        const res = makeRes();
+        await userCtrl.login(req, res);
+        const payload = res.json.mock.calls[0][0];
+        expect(payload.token).toBeTypeOf('string');
+        expect(payload.user.email).toBe('lucas@teste.com');
+    });
+    it('Login falha com usuário inexistente', async () => {
+        User.findOne.mockResolvedValueOnce(null);
+        const req = makeReq({ body: { email: 'nao@existe.com', senha: 'SenhaSegura1' } });
+        const res = makeRes();
+        await userCtrl.login(req, res);
+        expect(res.status).toHaveBeenCalledWith(401);
     });
 });

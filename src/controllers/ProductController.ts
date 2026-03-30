@@ -91,7 +91,8 @@ export class ProductController {
 
   private async fetchProducts({ limit, offset }: PaginationParams) {
     return sequelize.query(
-      `SELECT * FROM products ORDER BY id DESC LIMIT :limit OFFSET :offset`,
+      `SELECT id, name, description, price, category, categoryId, book_category, image_url, age_range, is_active, discount_percent, is_featured, createdAt, updatedAt
+       FROM products ORDER BY id DESC LIMIT :limit OFFSET :offset`,
       { replacements: { limit, offset }, type: QueryTypes.SELECT }
     );
   }

@@ -1,4 +1,3 @@
-// server/src/utils/validators.ts
 export const validarCPF = (cpf) => {
     const clean = cpf.replace(/\D/g, '');
     if (clean.length !== 11 || /^(\d)\1+$/.test(clean))
@@ -23,7 +22,6 @@ export const validarCPF = (cpf) => {
     return true;
 };
 export const validarSenha = (senha) => {
-    // Mínimo 8 chars, 1 maiúscula, 1 minúscula, 1 número (Rubrica exige validação de nível)
     const forte = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
     return forte.test(senha);
 };

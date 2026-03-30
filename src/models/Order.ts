@@ -6,11 +6,17 @@ export class Order extends Model {
   declare customer_id: number | null;
   declare customer_email: string;
   declare customer_name: string | null;
+  declare customer_cpf: string | null;
   declare subtotal_price: number | null;
   declare coupon_code: string | null;
   declare discount_amount: number | null;
   declare total_price: number;
-  declare status: 'pending' | 'paid' | 'delivered' | 'cancelled';
+  declare delivery_address: string | null;
+  declare delivery_city: string | null;
+  declare delivery_state: string | null;
+  declare delivery_zip: string | null;
+  declare delivery_phone: string | null;
+  declare status: 'pending' | 'paid' | 'shipped' | 'delivered' | 'cancelled';
 }
 
 Order.init(
@@ -32,6 +38,10 @@ Order.init(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    customer_cpf: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     subtotal_price: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: true,
@@ -49,8 +59,28 @@ Order.init(
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
     },
+    delivery_address: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    delivery_city: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    delivery_state: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    delivery_zip: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    delivery_phone: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     status: {
-      type: DataTypes.ENUM('pending', 'paid', 'delivered', 'cancelled'),
+      type: DataTypes.ENUM('pending', 'paid', 'shipped', 'delivered', 'cancelled'),
       defaultValue: 'pending',
     },
   },

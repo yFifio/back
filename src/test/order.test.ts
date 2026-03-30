@@ -2,6 +2,7 @@ import { describe, it, expect, vi, Mock, beforeEach } from 'vitest';
 import { OrderController } from '../controllers/OrderController';
 import { Order } from '../models/Order';
 import { OrderItem } from '../models/OrderItem';
+import { User } from '../models/User';
 import { Request, Response } from 'express';
 
 interface CorpoPedido {
@@ -10,6 +11,8 @@ interface CorpoPedido {
   customerName: string;
   customerCpf: string;
   totalPrice: number;
+  customerId?: number;
+  deliveryAddress?: { address: string; city: string; state: string; zip: string; phone: string };
 }
 
 interface PreferenceBody {
@@ -27,28 +30,38 @@ interface PrivateOrderMethods {
   gerarPagamento: (order: { id: number }, body: CorpoPedido) => Promise<{ orderId: number; mode?: string }>;
   montarUrlsRetorno: (orderId: number) => { success: string; failure: string; pending: string; };
   montarCorpoPreferencia: (...args: MethodArg[]) => PreferenceBody;
+  criarPreferenciaMercadoPago: (...args: MethodArg[]) => Promise<{ orderId: number; init_point: string | null; preference_id: string | null }>;
+  normalizarErro: (error: unknown) => string;
+  markOrderAsPaid: (orderId: number) => Promise<boolean>;
 }
 
 type TestRequest = Partial<Request> & {
   body?: CorpoPedido;
   params?: Record<string, string>;
   query?: Record<string, string>;
+  userId?: number;
+  isAdmin?: boolean;
 };
 
 type TestResponse = Response & { status: Mock; json: Mock };
 
 const makeReq = (data: TestRequest): Request => data as Request;
 const makeRes = (): TestResponse => ({ status: vi.fn().mockReturnThis(), json: vi.fn() } as TestResponse);
-
 vi.mock('../models/Order', () => {
   const create = vi.fn();
   const findByPk = vi.fn();
-  return { Order: { create, findByPk } };
+  const findAll = vi.fn();
+  return { Order: { create, findByPk, findAll } };
 });
 
 vi.mock('../models/OrderItem', () => {
   const create = vi.fn();
-  return { OrderItem: { create } };
+    return { OrderItem: { create } };
+});
+
+vi.mock('../models/User', () => {
+  const findByPk = vi.fn();
+  return { User: { findByPk } };
 });
 
 describe('OrderController', () => {
@@ -67,6 +80,7 @@ describe('OrderController', () => {
     vi.spyOn(orderCtrlPrivate, 'gerarPagamento').mockRejectedValue(new Error('MP down'));
 
     const req = makeReq({
+      userId: 1,
       body: { items: [{ productId: 1, productName: 'x', price: 10, quantity: 1 }], customerEmail: 'a', customerName: 'b', customerCpf: '12345678901', totalPrice: 10 },
     });
     const res = makeRes();
@@ -83,6 +97,7 @@ describe('OrderController', () => {
     vi.spyOn(orderCtrlPrivate, 'salvarItens').mockResolvedValue(undefined);
 
     const req = makeReq({
+      userId: 1,
       body: { items: [{ productId: 1, productName: 'x', price: 10, quantity: 1 }], customerEmail: 'a', customerName: 'b', customerCpf: '12345678901', totalPrice: 10 },
     });
     const res = makeRes();
@@ -98,8 +113,8 @@ describe('OrderController', () => {
     const urls = orderCtrlPrivate.montarUrlsRetorno(99);
     expect(urls).toEqual({
       success: 'http://localhost:3000/order-success?order_id=99',
-      failure: 'http://localhost:3000/checkout',
-      pending: 'http://localhost:3000/checkout',
+      failure: 'http://localhost:3000/order-success?order_id=99',
+      pending: 'http://localhost:3000/order-success?order_id=99',
     });
 
     process.env.FRONT_URL = ' example.com/ ';
@@ -138,5 +153,198 @@ describe('OrderController', () => {
     await orderCtrlPrivate.salvarItens(fakeOrderId, items);
 
     expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ order_id: fakeOrderId }));
+  });
+
+  it('salvarPedido should persist delivery data and customer cpf', async () => {
+    const createSpy = vi.spyOn(Order, 'create').mockResolvedValue({ id: 10 } as never);
+
+    await orderCtrlPrivate.salvarPedido(
+      {
+        items: [{ productId: 1, productName: 'Livro', price: 30, quantity: 1 }],
+        customerEmail: 'cliente@teste.com',
+        customerName: 'Cliente',
+        customerCpf: '52998224725',
+        customerId: 2,
+        totalPrice: 30,
+        deliveryAddress: {
+          address: 'Rua B, 456',
+          city: 'Campinas',
+          state: 'SP',
+          zip: '13000-000',
+          phone: '(19) 99999-9999',
+        },
+      },
+      { subtotal: 30, discountAmount: 0, finalTotal: 30, couponCode: null }
+    );
+
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({
+      customer_cpf: '52998224725',
+      delivery_address: 'Rua B, 456',
+      delivery_city: 'Campinas',
+      delivery_state: 'SP',
+      delivery_zip: '13000-000',
+      delivery_phone: '(19) 99999-9999',
+    }));
+  });
+
+  it('list should restrict non-admin users to their own orders', async () => {
+    (User.findByPk as Mock).mockResolvedValueOnce({ id: 7, isAdmin: false });
+    const findAllSpy = vi.spyOn(Order, 'findAll').mockResolvedValue([] as never);
+    const req = makeReq({ query: {} as Record<string, string>, userId: 7 } as TestRequest & { userId: number });
+    const res = makeRes();
+
+    await orderCtrl.list(req as Request, res);
+
+    expect(findAllSpy).toHaveBeenCalledWith(expect.objectContaining({ where: { customer_id: '7' } }));
+    expect(res.json).toHaveBeenCalledWith([]);
+  });
+
+  it('list should allow admin users to view all orders', async () => {
+    (User.findByPk as Mock).mockResolvedValueOnce({ id: 1, isAdmin: true });
+    const findAllSpy = vi.spyOn(Order, 'findAll').mockResolvedValue([] as never);
+    const req = makeReq({ query: {}, userId: 1 } as TestRequest & { userId: number });
+    const res = makeRes();
+
+    await orderCtrl.list(req as Request, res);
+
+    expect(findAllSpy).toHaveBeenCalledWith(expect.objectContaining({ where: {} }));
+    expect(res.json).toHaveBeenCalledWith([]);
+  });
+
+  it('list should allow admin token to view all orders even when DB flag is not admin', async () => {
+    (User.findByPk as Mock).mockResolvedValueOnce({ id: 1, isAdmin: false });
+    const findAllSpy = vi.spyOn(Order, 'findAll').mockResolvedValue([] as never);
+    const req = makeReq({ query: {}, userId: 1, isAdmin: true } as TestRequest & { userId: number });
+    const res = makeRes();
+
+    await orderCtrl.list(req as Request, res);
+
+    expect(findAllSpy).toHaveBeenCalledWith(expect.objectContaining({ where: {} }));
+    expect(res.json).toHaveBeenCalledWith([]);
+  });
+
+  it('syncPaymentStatus should mark order as paid when payment_id is approved', async () => {
+    process.env.MERCADOPAGO_ACCESS_TOKEN = 'dummy';
+    const order = { id: 33, status: 'pending', update: vi.fn().mockResolvedValue(undefined) };
+    (Order.findByPk as Mock).mockResolvedValue(order);
+
+    const mercadopago = await import('mercadopago');
+    vi.spyOn(mercadopago.Payment.prototype, 'get').mockResolvedValue({
+      id: 'mp-123',
+      status: 'approved',
+      external_reference: '33',
+    } as never);
+
+    const req = makeReq({ userId: 33, isAdmin: true, params: { id: '33' }, query: { payment_id: 'mp-123' } });
+    const res = makeRes();
+
+    await orderCtrl.syncPaymentStatus(req, res);
+
+    expect(order.update).toHaveBeenCalledWith({ status: 'paid' });
+    expect(res.json).toHaveBeenCalledWith({ status: 'paid', message: 'Pagamento sincronizado com sucesso' });
+  });
+
+  it('syncPaymentStatus accepts paymentId query key (camelCase)', async () => {
+    process.env.MERCADOPAGO_ACCESS_TOKEN = 'dummy';
+    const order = { id: 88, status: 'pending', update: vi.fn().mockResolvedValue(undefined) };
+    (Order.findByPk as Mock).mockResolvedValue(order);
+
+    const mercadopago = await import('mercadopago');
+    vi.spyOn(mercadopago.Payment.prototype, 'get').mockResolvedValue({
+      id: 'mp-888',
+      status: 'approved',
+      external_reference: '88',
+    } as never);
+
+    const req = makeReq({ userId: 1, isAdmin: true, params: { id: '88' }, query: { paymentId: 'mp-888' } });
+    const res = makeRes();
+
+    await orderCtrl.syncPaymentStatus(req, res);
+
+    expect(order.update).toHaveBeenCalledWith({ status: 'paid' });
+    expect(res.json).toHaveBeenCalledWith({ status: 'paid', message: 'Pagamento sincronizado com sucesso' });
+  });
+
+  it('syncPaymentStatus falls back to search when payment lookup fails and finds approved result', async () => {
+    process.env.MERCADOPAGO_ACCESS_TOKEN = 'dummy';
+    const order = { id: 91, status: 'pending', update: vi.fn().mockResolvedValue(undefined) };
+    (Order.findByPk as Mock).mockResolvedValue(order);
+
+    const mercadopago = await import('mercadopago');
+    vi.spyOn(mercadopago.Payment.prototype, 'get').mockRejectedValue(new Error('payment not found'));
+    vi.spyOn(mercadopago.Payment.prototype, 'search').mockResolvedValue({
+      results: [
+        { id: 'mp-pending', status: 'pending', external_reference: '91' },
+        { id: 'mp-approved', status: 'approved', external_reference: '91' },
+      ],
+    } as never);
+
+    const req = makeReq({ userId: 1, isAdmin: true, params: { id: '91' }, query: { payment_id: 'invalid-id' } });
+    const res = makeRes();
+
+    await orderCtrl.syncPaymentStatus(req, res);
+
+    expect(order.update).toHaveBeenCalledWith({ status: 'paid' });
+    expect(res.json).toHaveBeenCalledWith({ status: 'paid', message: 'Pagamento sincronizado com sucesso' });
+  });
+
+  it('create uses MP fallback when auto_return is invalid', async () => {
+    process.env.MERCADOPAGO_ACCESS_TOKEN = 'dummy';
+    (Order.create as Mock).mockResolvedValue({ id: 501, status: 'pending', discount_amount: 0, coupon_code: null });
+    (OrderItem.create as Mock).mockResolvedValue({});
+
+    const mercadopago = await import('mercadopago');
+    vi.spyOn(mercadopago.Preference.prototype, 'create')
+      .mockRejectedValueOnce(new Error('auto_return invalid'))
+      .mockResolvedValueOnce({ id: 'pref-fallback', init_point: 'http://fallback' } as never);
+
+    const req = makeReq({
+      userId: 10,
+      body: {
+        items: [{ productId: 1, productName: 'x', price: 10, quantity: 1 }],
+        customerEmail: 'a@a.com',
+        customerName: 'Nome Sobrenome',
+        customerCpf: '52998224725',
+        totalPrice: 10,
+      },
+    });
+    const res = makeRes();
+
+    await orderCtrl.create(req, res);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ orderId: 501, preference_id: 'pref-fallback' }));
+  });
+
+  it('normalizarErro falls back to String on circular data', () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const msg = orderCtrlPrivate.normalizarErro(circular);
+    expect(msg).toContain('[object Object]');
+  });
+
+  it('montarCorpoPreferencia includes discount item and payer fallback', () => {
+    const payload = orderCtrlPrivate.montarCorpoPreferencia(
+      { id: 77, discount_amount: 5, coupon_code: 'OFF5' },
+      {
+        items: [{ productId: 1, productName: '', price: 15.5, quantity: 0 }],
+        customerEmail: '',
+        customerName: '',
+        customerCpf: '',
+        totalPrice: 15.5,
+      }
+    );
+
+    expect(payload.items).toHaveLength(2);
+    expect(payload.items[1]).toEqual(expect.objectContaining({ id: 'discount', unit_price: -5 }));
+    expect(payload.payer).toEqual(expect.objectContaining({ email: 'teste@teste.com', name: 'Cliente' }));
+  });
+
+  it('markOrderAsPaid returns false when order does not exist', async () => {
+    (Order.findByPk as Mock).mockResolvedValueOnce(null);
+    await expect(orderCtrlPrivate.markOrderAsPaid(999)).resolves.toBe(false);
+  });
+
+  it('markOrderAsPaid returns true when order is already paid', async () => {
+    (Order.findByPk as Mock).mockResolvedValueOnce({ id: 12, status: 'paid', update: vi.fn() });
+    await expect(orderCtrlPrivate.markOrderAsPaid(12)).resolves.toBe(true);
   });
 });

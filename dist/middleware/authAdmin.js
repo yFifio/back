@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-export const authMiddleware = (req, res, next) => {
+export const authAdminMiddleware = (req, res, next) => {
     const token = req.headers['authorization']?.split(' ')[1];
     if (!token)
         return res.status(401).json({ error: 'Token não fornecido' });
@@ -7,6 +7,8 @@ export const authMiddleware = (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
         req.userId = decoded.id;
         req.isAdmin = Boolean(decoded.isAdmin);
+        if (!req.isAdmin)
+            return res.status(403).json({ error: 'Acesso negado' });
         next();
     }
     catch (error) {

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import { Op, col, fn, where } from 'sequelize';
 import { User } from '../models/User';
 import { AuthRequest } from '../types';
 import { validarCPF, validarEmail, validarSenha } from '../utils/validators';
@@ -15,13 +16,14 @@ export class UserController {
   }
 
   private async processarCadastro(req: Request, res: Response) {
-    const camposErro = this.verificarCamposObrigatorios(req.body);
+    const payload = this.normalizarCadastro(req.body as Partial<User> & { senha?: string });
+    const camposErro = this.verificarCamposObrigatorios(payload);
     if (camposErro) return res.status(400).json({ error: camposErro });
-    const erroValidacao = this.validarDados(req.body);
+    const erroValidacao = this.validarDados(payload);
     if (erroValidacao) return res.status(400).json({ error: erroValidacao });
-    const erroDuplicidade = await this.verificarDuplicidade(req.body.email, req.body.cpf);
+    const erroDuplicidade = await this.verificarDuplicidade(payload.email, payload.cpf);
     if (erroDuplicidade) return res.status(400).json({ error: erroDuplicidade });
-    const user = await this.criarUsuario(req.body);
+    const user = await this.criarUsuario(payload);
     return res.status(201).json({ id: user.id, nome: user.nome, email: user.email });
   }
 
@@ -47,10 +49,26 @@ export class UserController {
 
   private async loginInternal(req: Request, res: Response) {
     const { email, senha } = req.body;
-    if (!this.emailValido(email)) return this.badRequest(res, 'Email inválido');
-    const user = await this.autenticarUsuario(email, senha);
-    if (!user) return this.unauthorized(res, 'Credenciais inválidas');
-    return res.json(this.generateAuthResponse(user));
+    const identifier = String(email || '').trim();
+    const password = String(senha || '');
+
+    if (!identifier || !password) {
+      return this.badRequest(res, 'Email/CPF e senha são obrigatórios');
+    }
+
+    if (identifier.includes('@') && !this.emailValido(identifier)) {
+      return this.badRequest(res, 'Email inválido');
+    }
+
+    const authResult = await this.autenticarUsuario(identifier, password);
+    if (!authResult.user) {
+      if (authResult.reason === 'not_found') {
+        return this.unauthorized(res, 'Conta não encontrada. Crie sua conta primeiro.');
+      }
+      return this.unauthorized(res, 'Senha incorreta');
+    }
+
+    return res.json(this.generateAuthResponse(authResult.user));
   }
 
   list = async (req: Request, res: Response) => {
@@ -81,8 +99,8 @@ export class UserController {
   }
 
   private validarCamposObrigatoriosEdicao(body: Partial<User> & { senha?: string }): string | null {
-    if (!body.nome || String(body.nome).trim().length < 2) return 'Nome é obrigatório';
-    if (!body.cpf) return 'CPF é obrigatório';
+    if (body.nome !== undefined && String(body.nome).trim().length < 2) return 'Nome é obrigatório';
+    if (body.cpf !== undefined && String(body.cpf).trim().length === 0) return 'CPF inválido';
     return null;
   }
 
@@ -121,7 +139,7 @@ export class UserController {
   }
 
   private generateAuthResponse(user: User) {
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET || 'secret', { expiresIn: '8h' });
+    const token = jwt.sign({ id: user.id , isAdmin: user.isAdmin}, process.env.JWT_SECRET || 'secret', { expiresIn: '8h' });
     return {
       token,
       user: { id: user.id, nome: user.nome, email: user.email, isAdmin: user.isAdmin, cpf: user.cpf }
@@ -147,7 +165,7 @@ export class UserController {
   }
 
   private async processarAtualizacaoAdmin(req: AuthRequest, res: Response) {
-    if (!this.isSelfUpdate(req)) return this.forbidden(res, 'Você só pode editar o próprio usuário');
+    if (!req.isAdmin) return this.forbidden(res, 'Apenas administradores podem editar usuários');
     const user = await User.findByPk(req.params.id);
     if (!user) return this.notFound(res, 'Usuário não encontrado');
     const erro = await this.validarAtualizacao(req.body, user.cpf);
@@ -157,10 +175,57 @@ export class UserController {
     return res.json({ user: updated });
   }
 
-  private async autenticarUsuario(email: string, senha: string): Promise<User | null> {
-    const user = await User.findOne({ where: { email } });
-    if (!user) return null;
-    return (await bcrypt.compare(senha, user.senha)) ? user : null;
+  private async autenticarUsuario(identifier: string, senha: string): Promise<{ user: User | null; reason?: 'not_found' | 'wrong_password' }> {
+    const normalizedIdentifier = identifier.trim();
+    const isEmail = normalizedIdentifier.includes('@');
+
+    const user = isEmail
+      ? await User.findOne({
+          where: where(fn('LOWER', fn('TRIM', col('email'))), normalizedIdentifier.toLowerCase()),
+        })
+      : await this.buscarUsuarioPorCpf(normalizedIdentifier);
+
+    if (!user) return { user: null, reason: 'not_found' };
+
+    const ok = await bcrypt.compare(senha, user.senha);
+    if (!ok) return { user: null, reason: 'wrong_password' };
+
+    return { user };
+  }
+
+  private async buscarUsuarioPorCpf(cpfInput: string): Promise<User | null> {
+    const cpfNormalizado = cpfInput.replace(/\D/g, '');
+
+    return User.findOne({
+      where: {
+        [Op.or]: [
+          { cpf: cpfInput },
+          { cpf: cpfNormalizado },
+          where(
+            fn(
+              'REPLACE',
+              fn(
+                'REPLACE',
+                fn('REPLACE', fn('REPLACE', fn('TRIM', col('cpf')), '.', ''), '-', ''),
+                '/',
+                ''
+              ),
+              ' ',
+              ''
+            ),
+            cpfNormalizado
+          ),
+        ],
+      },
+    });
+  }
+
+  private normalizarCadastro(body: Partial<User> & { senha?: string }) {
+    return {
+      ...body,
+      email: String(body.email || '').trim().toLowerCase(),
+      cpf: String(body.cpf || '').replace(/\D/g, ''),
+    };
   }
 
   private async validarAtualizacao(body: Partial<User> & { senha?: string }, cpfAtual: string) {
@@ -168,7 +233,10 @@ export class UserController {
     if (erroCampos) return erroCampos;
     const erroValidacao = this.validarEdicao(body);
     if (erroValidacao) return erroValidacao;
-    return this.verificarCpfUnico(body.cpf || '', cpfAtual);
+    if (body.cpf) {
+      return this.verificarCpfUnico(body.cpf, cpfAtual);
+    }
+    return null;
   }
 
   private isSelfUpdate(req: AuthRequest) {

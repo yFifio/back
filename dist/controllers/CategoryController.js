@@ -1,6 +1,9 @@
 import { Category } from '../models/Category';
 import { dbConnected } from '../utils/appState';
 export class CategoryController {
+    serviceUnavailable(res) {
+        return res.status(503).json({ error: 'Serviço temporariamente indisponível' });
+    }
     list = async (req, res) => {
         const limit = Number(req.query?.limit) || 10;
         const offset = Number(req.query?.offset) || 0;
@@ -16,7 +19,7 @@ export class CategoryController {
     };
     getById = async (req, res) => {
         if (!dbConnected)
-            return res.status(404).json({ error: 'Mock: Não encontrada' });
+            return this.serviceUnavailable(res);
         try {
             const category = await Category.findByPk(req.params.id);
             if (!category)
@@ -31,7 +34,7 @@ export class CategoryController {
         if (!req.body.name)
             return res.status(400).json({ error: 'Nome obrigatório' });
         if (!dbConnected)
-            return res.status(201).json({ id: 1, name: req.body.name });
+            return this.serviceUnavailable(res);
         try {
             const cat = await Category.create({ name: req.body.name });
             return res.status(201).json(cat);
@@ -42,7 +45,7 @@ export class CategoryController {
     };
     update = async (req, res) => {
         if (!dbConnected)
-            return res.json({ message: 'Atualizada (mock)' });
+            return this.serviceUnavailable(res);
         try {
             const category = await Category.findByPk(req.params.id);
             if (!category)
@@ -55,7 +58,7 @@ export class CategoryController {
     };
     delete = async (req, res) => {
         if (!dbConnected)
-            return res.json({ message: 'Deletada (mock)' });
+            return this.serviceUnavailable(res);
         try {
             const cat = await Category.findByPk(req.params.id);
             if (!cat)

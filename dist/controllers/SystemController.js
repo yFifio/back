@@ -13,12 +13,10 @@ export class SystemController {
     };
     create = async (req, res) => {
         try {
-            const { name, type } = req.body;
-            if (!name || !type || !['A', 'B', 'C'].includes(type)) {
-                return res.status(400).json({ error: 'Dados inválidos' });
-            }
-            const sys = await System.create({ name, type });
-            return res.status(201).json(sys);
+            const payload = this.getSystemPayload(req);
+            if (!this.isValidSystemPayload(payload))
+                return this.badRequest(res, 'Dados inválidos');
+            return res.status(201).json(await System.create(payload));
         }
         catch (error) {
             return res.status(500).json({ error: 'Erro ao criar sistema' });
@@ -26,20 +24,23 @@ export class SystemController {
     };
     update = async (req, res) => {
         try {
-            const sys = await System.findByPk(req.params.id);
-            if (!sys)
-                return res.status(404).json({ error: 'Sistema não encontrado' });
-            const { name } = req.body;
-            if (!name)
-                return res.status(400).json({ error: 'Nome obrigatório' });
-            sys.name = name;
-            await sys.save();
-            return res.json(sys);
+            return await this.updateInternal(req, res);
         }
         catch (error) {
             return res.status(500).json({ error: 'Erro ao atualizar sistema' });
         }
     };
+    async updateInternal(req, res) {
+        const sys = await System.findByPk(req.params.id);
+        if (!sys)
+            return this.notFound(res);
+        const payload = this.getSystemPayload(req);
+        if (!payload.name)
+            return this.badRequest(res, 'Nome obrigatório');
+        sys.name = payload.name;
+        await sys.save();
+        return res.json(sys);
+    }
     delete = async (req, res) => {
         try {
             const rows = await System.destroy({ where: { id: req.params.id } });
@@ -51,4 +52,16 @@ export class SystemController {
             return res.status(500).json({ error: 'Erro ao excluir sistema' });
         }
     };
+    getSystemPayload(req) {
+        return { name: req.body?.name, type: req.body?.type };
+    }
+    isValidSystemPayload(payload) {
+        return Boolean(payload.name && payload.type && ['A', 'B', 'C'].includes(payload.type));
+    }
+    badRequest(res, message) {
+        return res.status(400).json({ error: message });
+    }
+    notFound(res) {
+        return res.status(404).json({ error: 'Sistema não encontrado' });
+    }
 }
