@@ -1,0 +1,71 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "resources": [
+    {
+      "_type": "request",
+      "name": "1. Registrar Usuário (Validações)",
+      "url": "http://localhost:3001/api/register",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n\t\"nome\": \"Lucas TADS\",\n\t\"email\": \"lucas@teste.com\",\n\t\"senha\": \"senha123\",\n\t\"cpf\": \"12345678901\"\n}"
+      }
+    },
+    {
+      "_type": "request",
+      "name": "2. Login (Gerar Token)",
+      "url": "http://localhost:3001/api/login",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n\t\"email\": \"lucas@teste.com\",\n\t\"senha\": \"senha123\"\n}"
+      }
+    },
+    {
+      "_type": "request",
+      "name": "3. Criar Categoria (Auth)",
+      "url": "http://localhost:3001/api/categories",
+      "method": "POST",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer COLE_SEU_TOKEN_AQUI" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n\t\"name\": \"Jogos\"\n}"
+      }
+    },
+    {
+      "_type": "request",
+      "name": "4. Criar Produto (Auth)",
+      "url": "http://localhost:3001/api/products",
+      "method": "POST",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer COLE_SEU_TOKEN_AQUI" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n\t\"name\": \"Hogwarts Legacy\",\n\t\"description\": \"Jogo de RPG Mundo Aberto\",\n\t\"price\": 250.00,\n\t\"categoryId\": 1\n}"
+      }
+    },
+    {
+      "_type": "request",
+      "name": "5. Listar Produtos (Paginação)",
+      "url": "http://localhost:3001/api/products?page=1&limit=5",
+      "method": "GET"
+    },
+    {
+      "_type": "request",
+      "name": "6. Editar Meu Perfil (Auth)",
+      "url": "http://localhost:3001/api/users/me",
+      "method": "PUT",
+      "headers": [
+        { "name": "Authorization", "value": "Bearer COLE_SEU_TOKEN_AQUI" }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n\t\"nome\": \"Lucas Desenvolvedor Editado\",\n\t\"email\": \"hacker_tentou_mudar@teste.com\"\n}"
+      }
+    }
+  ]
+}
