@@ -70,6 +70,7 @@ router.get('/orders', authMiddleware, (req: Request, res: Response) => orderCtrl
 router.post('/orders/:id/mark-paid', authMiddleware, (req: Request, res: Response) => orderCtrl.markPaid(req, res));
 router.put('/orders/:id/status', authAdminMiddleware, (req: Request, res: Response) => orderCtrl.updateStatus(req, res));
 router.patch('/orders/:id', authAdminMiddleware, (req: Request, res: Response) => orderCtrl.updateDelivery(req, res));
+router.delete('/orders/:id', authAdminMiddleware, (req: Request, res: Response) => orderCtrl.delete(req, res));
 router.post('/orders/:id/tracking-email', authAdminMiddleware, (req: Request, res: Response) => orderCtrl.sendTrackingEmail(req, res));
 router.get('/orders/:id/sync-payment', authMiddleware, (req: Request, res: Response) => orderCtrl.syncPaymentStatus(req, res));
 
