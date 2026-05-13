@@ -29,6 +29,13 @@ export class ProductController {
 
   create = async (req: Request, res: Response) => {
     try {
+      const { name, price } = req.body || {};
+      if (!name || String(name).trim().length === 0) {
+        return res.status(400).json({ error: 'Nome do produto é obrigatório' });
+      }
+      if (price === undefined || price === null || isNaN(Number(price)) || Number(price) < 0) {
+        return res.status(400).json({ error: 'Preço inválido' });
+      }
       return res.status(201).json(await this.createProduct(req.body));
     } catch {
       return res.status(500).json({ error: 'Erro ao criar produto' });

@@ -49,6 +49,7 @@ router.post('/register', (req: Request, res: Response) => userCtrl.register(req,
 router.post('/login', (req: Request, res: Response) => userCtrl.login(req, res));
 router.get('/users', authAdminMiddleware, (req: Request, res: Response) => userCtrl.list(req, res));
 router.delete('/users/:id', authAdminMiddleware, (req: Request, res: Response) => userCtrl.delete(req, res));
+router.get('/users/me', authMiddleware, (req: Request, res: Response) => userCtrl.getMe(req, res));
 router.put('/users/me', authMiddleware, (req: Request, res: Response) => userCtrl.updateMe(req, res));
 router.put('/users/:id', authAdminMiddleware, (req: Request, res: Response) => userCtrl.updateById(req, res));
 

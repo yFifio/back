@@ -80,6 +80,16 @@ export class UserController {
     return res.json({ data: rows, total: count });
   }
 
+  getMe = async (req: AuthRequest, res: Response) => {
+    try {
+      const user = await User.findByPk(req.userId, { attributes: { exclude: ['senha'] } });
+      if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+      return res.json({ user });
+    } catch {
+      return res.status(500).json({ error: 'Erro interno' });
+    }
+  }
+
   updateMe = async (req: AuthRequest, res: Response) => {
     try {
       return await this.processarAtualizacaoMe(req, res);
