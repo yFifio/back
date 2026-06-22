@@ -49,6 +49,7 @@ router.post('/register', (req: Request, res: Response) => userCtrl.register(req,
 router.post('/login', (req: Request, res: Response) => userCtrl.login(req, res));
 router.get('/users', authAdminMiddleware, (req: Request, res: Response) => userCtrl.list(req, res));
 router.delete('/users/:id', authAdminMiddleware, (req: Request, res: Response) => userCtrl.delete(req, res));
+router.get('/users/me', authMiddleware, (req: Request, res: Response) => userCtrl.getMe(req, res));
 router.put('/users/me', authMiddleware, (req: Request, res: Response) => userCtrl.updateMe(req, res));
 router.put('/users/:id', authAdminMiddleware, (req: Request, res: Response) => userCtrl.updateById(req, res));
 
@@ -69,6 +70,7 @@ router.get('/orders', authMiddleware, (req: Request, res: Response) => orderCtrl
 router.post('/orders/:id/mark-paid', authMiddleware, (req: Request, res: Response) => orderCtrl.markPaid(req, res));
 router.put('/orders/:id/status', authAdminMiddleware, (req: Request, res: Response) => orderCtrl.updateStatus(req, res));
 router.patch('/orders/:id', authAdminMiddleware, (req: Request, res: Response) => orderCtrl.updateDelivery(req, res));
+router.delete('/orders/:id', authAdminMiddleware, (req: Request, res: Response) => orderCtrl.delete(req, res));
 router.post('/orders/:id/tracking-email', authAdminMiddleware, (req: Request, res: Response) => orderCtrl.sendTrackingEmail(req, res));
 router.get('/orders/:id/sync-payment', authMiddleware, (req: Request, res: Response) => orderCtrl.syncPaymentStatus(req, res));
 
