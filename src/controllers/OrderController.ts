@@ -193,6 +193,23 @@ export class OrderController {
     }
   };
 
+  public delete = async (req: AuthRequest, res: Response): Promise<Response> => {
+    try {
+      const requestingUser = await this.buscarUsuarioAutenticado(req.userId);
+      if (!requestingUser?.isAdmin && !req.isAdmin) {
+        return res.status(403).json({ error: 'Acesso negado' });
+      }
+
+      const order = await Order.findByPk(req.params.id);
+      if (!order) return res.status(404).json({ error: 'Pedido não encontrado' });
+
+      await order.destroy();
+      return res.status(204).send();
+    } catch (error) {
+      return res.status(500).json({ error: 'Falha ao excluir pedido' });
+    }
+  };
+
   public sendTrackingEmail = async (req: AuthRequest, res: Response): Promise<Response> => {
     try {
       const requestingUser = await this.buscarUsuarioAutenticado(req.userId);
