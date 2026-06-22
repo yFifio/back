@@ -269,7 +269,7 @@ export class OrderController {
         }
       }
 
-      // Fallback: search by external_reference
+      
       const response = await mpPayment.search({ options: { external_reference: String(orderId) } });
       const payments = response?.results || [];
       const approvedPayment = payments.find((payment: any) => this.isApprovedPaymentForOrder(payment, orderId));
@@ -523,8 +523,8 @@ export class OrderController {
     return {
       items,
       payer: this.montarPagador(body), 
-      external_reference: String(order.id), // Use snake_case as per Mercado Pago API
-      back_urls: urls, // Use snake_case as per Mercado Pago API
+      external_reference: String(order.id), 
+      back_urls: urls, 
       auto_return: 'approved',
     } as any;
   }

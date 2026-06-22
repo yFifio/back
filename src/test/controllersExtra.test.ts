@@ -150,7 +150,7 @@ describe('CouponController - extra', () => {
   });
 });
 
-// ========== SystemController Extra ============
+
 describe('SystemController - extra error paths', () => {
   const ctrl = new SystemController();
   beforeEach(() => vi.resetAllMocks());
@@ -188,7 +188,7 @@ describe('SystemController - extra error paths', () => {
   });
 });
 
-// ========== ShippingMethodController Extra ============
+
 describe('ShippingMethodController - extra', () => {
   const ctrl = new ShippingMethodController();
   beforeEach(() => vi.resetAllMocks());
@@ -262,7 +262,7 @@ describe('ShippingMethodController - extra', () => {
   });
 });
 
-// ========== SupplierController Extra ============
+
 describe('SupplierController - extra', () => {
   const ctrl = new SupplierController();
   beforeEach(() => vi.resetAllMocks());

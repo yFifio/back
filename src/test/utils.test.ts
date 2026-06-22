@@ -33,8 +33,8 @@ describe('validarCPF', () => {
   });
 
   it('retorna false quando primeiro dígito verificador não confere', () => {
-    // CPF: 529.982.247-25 - let's test various invalid ones
-    expect(validarCPF('52998224715')).toBe(false); // last digit changed
+    
+    expect(validarCPF('52998224715')).toBe(false); 
   });
 
   it('cobre ramo onde segundo resto vira 0 (10/11)', () => {
@@ -134,6 +134,6 @@ describe('appState', () => {
   it('setDbConnected altera o valor de dbConnected para true', () => {
     setDbConnected(true);
     expect(dbConnected).toBe(true);
-    setDbConnected(false); // restore
+    setDbConnected(false); 
   });
 });

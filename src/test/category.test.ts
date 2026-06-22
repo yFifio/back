@@ -33,7 +33,7 @@ describe('CategoryController', () => {
     appState.setDbConnected(false);
   });
 
-  // list
+  
   it('retorna lista vazia quando db não conectado', async () => {
     appState.setDbConnected(false);
     const res = makeRes();
@@ -56,7 +56,7 @@ describe('CategoryController', () => {
     expect(res.json).toHaveBeenCalledWith({ error: 'Erro interno ao listar categorias' });
   });
 
-  // getById
+  
   it('getById retorna 503 quando db não conectado', async () => {
     appState.setDbConnected(false);
     const res = makeRes();
@@ -86,7 +86,7 @@ describe('CategoryController', () => {
     expect(res.status).toHaveBeenCalledWith(500);
   });
 
-  // create
+  
   it('create retorna 400 quando nome faltando', async () => {
     const res = makeRes();
     await ctrl.create(makeReq({ body: {} }), res);
@@ -116,7 +116,7 @@ describe('CategoryController', () => {
     expect(res.status).toHaveBeenCalledWith(500);
   });
 
-  // update
+  
   it('update retorna 503 quando db não conectado', async () => {
     appState.setDbConnected(false);
     const res = makeRes();
@@ -147,7 +147,7 @@ describe('CategoryController', () => {
     expect(res.status).toHaveBeenCalledWith(500);
   });
 
-  // delete
+  
   it('delete retorna 503 quando db não conectado', async () => {
     appState.setDbConnected(false);
     const res = makeRes();

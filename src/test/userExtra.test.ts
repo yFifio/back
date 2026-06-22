@@ -30,7 +30,7 @@ describe('UserController - extra', () => {
   const ctrlPrivate = ctrl as unknown as { isSelfUpdate: (req: Request) => boolean };
   beforeEach(() => vi.resetAllMocks());
 
-  // list
+  
   it('list retorna lista paginada de usuários', async () => {
     (User.findAndCountAll as Mock).mockResolvedValueOnce({
       count: 2,
@@ -44,7 +44,7 @@ describe('UserController - extra', () => {
     });
   });
 
-  // delete
+  
   it('delete remove usuário com sucesso', async () => {
     (User.destroy as Mock).mockResolvedValueOnce(1);
     const res = makeRes();
@@ -69,7 +69,7 @@ describe('UserController - extra', () => {
     expect(res.json).toHaveBeenCalledWith({ error: 'Erro ao deletar' });
   });
 
-  // register - missing fields
+  
   it('register retorna 400 quando campos obrigatórios faltam', async () => {
     const res = makeRes();
     await ctrl.register(makeReq({ body: { nome: 'X' } }), res);
@@ -93,7 +93,7 @@ describe('UserController - extra', () => {
     expect(res.json).toHaveBeenCalledWith({ id: 10, nome: 'Novo', email: 'novo@test.com' });
   });
 
-  // updateMe - user not found
+  
   it('updateMe retorna 404 quando usuário não encontrado', async () => {
     (User.findByPk as Mock).mockResolvedValueOnce(null);
     const res = makeRes();
@@ -146,10 +146,10 @@ describe('UserController - extra', () => {
     await ctrl.updateMe(makeReq({ userId: 1, body: { nome: 'Nome Valido', cpf: '52998224725', senha: 'SenhaSegura2' } }), res);
     expect(user.update).toHaveBeenCalled();
     const updateCall = (user.update as Mock).mock.calls[0][0];
-    expect(updateCall.email).toBeUndefined(); // email should be deleted
+    expect(updateCall.email).toBeUndefined(); 
   });
 
-  // updateById - user not found
+  
   it('updateById retorna 404 quando usuário não encontrado', async () => {
     (User.findByPk as Mock).mockResolvedValueOnce(null);
     const res = makeRes();
@@ -158,7 +158,7 @@ describe('UserController - extra', () => {
     expect(res.json).toHaveBeenCalledWith({ error: 'Usuário não encontrado' });
   });
 
-  // login - wrong password
+  
   it('login retorna 401 com senha incorreta', async () => {
     const hashed = await bcrypt.hash('CorrectPass1', 10);
     (User.findOne as Mock).mockResolvedValueOnce({
@@ -180,9 +180,9 @@ describe('UserController - extra', () => {
   it('login retorna 401 com email inválido no identifier', async () => {
     const res = makeRes();
     await ctrl.login(makeReq({ body: { email: 'nao-tem-arroba@invalido', senha: 'SenhaSegura1' } }), res);
-    // This will pass email validation then try to find user
+    
     (User.findOne as Mock).mockResolvedValueOnce(null);
-    // Either returns "Conta não encontrada" or processes normally
+    
     expect(res.status).toHaveBeenCalled();
   });
 
