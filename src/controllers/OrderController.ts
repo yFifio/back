@@ -89,13 +89,6 @@ export class OrderController {
       const effectiveUserId = isAdminRequest ? requestedUserId : String(requestingUser.id);
 
       const orders = await this.buscarPedidos(effectiveUserId);
-      await this.sincronizarPedidosPendentes(orders);
-
-      if (orders.some((order) => order.status === 'pending')) {
-        const refreshedOrders = await this.buscarPedidos(effectiveUserId);
-        return res.json(refreshedOrders);
-      }
-
       return res.json(orders);
     } catch (error) {
       return res.status(500).json({ error: 'Erro ao buscar pedidos' });
