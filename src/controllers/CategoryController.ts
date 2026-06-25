@@ -41,8 +41,8 @@ export class CategoryController {
       const category = await Category.findByPk(req.params.id);
       if (!category) return res.status(404).json({ error: 'Não encontrada' });
       await category.update(req.body);
-      await category.reload();
-      return res.json(category);
+      const reloadedCategory = await category.reload();
+      return res.json(reloadedCategory);
     } catch (e) { return this.handleError(res, 'atualizar', e as Error); }
   }
 

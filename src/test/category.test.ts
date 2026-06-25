@@ -132,13 +132,18 @@ describe('CategoryController', () => {
   });
 
   it('update atualiza categoria com sucesso', async () => {
-    const cat = { id: 1, name: 'Old', update: vi.fn().mockResolvedValue(undefined), reload: vi.fn().mockResolvedValue(undefined) };
+    const cat = {
+      id: 1,
+      name: 'Old',
+      update: vi.fn().mockResolvedValue(undefined),
+      reload: vi.fn().mockImplementation(function (this: { name: string }) { this.name = 'New'; return Promise.resolve(this); }),
+    };
     (Category.findByPk as Mock).mockResolvedValueOnce(cat);
     const res = makeRes();
     await ctrl.update(makeReq({ params: { id: '1' }, body: { name: 'New' } }), res);
     expect(cat.update).toHaveBeenCalledWith({ name: 'New' });
     expect(cat.reload).toHaveBeenCalled();
-    expect(res.json).toHaveBeenCalledWith(cat);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ name: 'New' }));
   });
 
   it('update retorna 500 em exceção', async () => {
