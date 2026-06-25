@@ -34,7 +34,7 @@ export class CategoryController {
       return res.status(201).json(cat);
     } catch (e) { return this.handleError(res, 'criar', e as Error); }
   }
-
+//
   update = async (req: Request, res: Response) => {
     if (!dbConnected) return this.serviceUnavailable(res);
     try {
