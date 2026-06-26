@@ -31,7 +31,7 @@ describe('ProductController', () => {
 
   beforeEach(() => vi.resetAllMocks());
 
-  
+  // list
   it('list retorna produtos paginados', async () => {
     (sequelize.query as Mock)
       .mockResolvedValueOnce([{ id: 1, name: 'Book' }])
@@ -62,7 +62,7 @@ describe('ProductController', () => {
     expect(json.page).toBe(2);
   });
 
-  
+  // getById
   it('getById retorna produto existente', async () => {
     (Product.findByPk as Mock).mockResolvedValueOnce({ id: 1, name: 'Test' });
     const res = makeRes();
@@ -86,7 +86,7 @@ describe('ProductController', () => {
     expect(res.json).toHaveBeenCalledWith({ error: 'Erro ao buscar produto' });
   });
 
-  
+  // create
   it('create cria produto com sucesso', async () => {
     (Product.create as Mock).mockResolvedValueOnce({ id: 5, name: 'Novo' });
     const res = makeRes();
@@ -103,7 +103,7 @@ describe('ProductController', () => {
     expect(res.json).toHaveBeenCalledWith({ error: 'Erro ao criar produto' });
   });
 
-  
+  // update
   it('update atualiza produto com sucesso', async () => {
     (Product.update as Mock).mockResolvedValueOnce([1]);
     const res = makeRes();
@@ -127,7 +127,7 @@ describe('ProductController', () => {
     expect(res.json).toHaveBeenCalledWith({ error: 'Erro ao atualizar produto' });
   });
 
-  
+  // delete
   it('delete exclui produto com sucesso', async () => {
     (Product.destroy as Mock).mockResolvedValueOnce(1);
     const res = makeRes();
