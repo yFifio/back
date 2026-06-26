@@ -2,16 +2,9 @@ import { Request, Response } from 'express';
 import { Order } from '../models/Order';
 import { OrderItem } from '../models/OrderItem';
 import { Product } from '../models/Produtos';
-import { Payment } from '../models/Payment';
-import { PaymentWebhook } from '../models/PaymentWebhook';
 import { Coupon } from '../models/Coupon';
 import { User } from '../models/User';
-import { MercadoPagoConfig, Preference, Payment as MPPayment } from 'mercadopago';
 import { AuthRequest } from '../types';
-
-const client = new MercadoPagoConfig({ 
-  accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN || '' 
-});
 
 interface ItemPedido {
   productId: number | string;
@@ -27,7 +20,7 @@ interface CorpoPedido {
   customerCpf: string;
   customerId?: number;
   totalPrice: number;
-  paymentMethod?: 'mercado_pago' | 'illustrative';
+  paymentMethod?: string;
   couponCode?: string;
   deliveryAddress?: {
     address: string;
@@ -103,17 +96,9 @@ export class OrderController {
   };
 
   private async sincronizarPedidosPendentes(orders: Order[]): Promise<void> {
-    if (!process.env.MERCADOPAGO_ACCESS_TOKEN) return;
-
-    const pendingOrderIds = orders
-      .filter((order) => order.status === 'pending')
-      .map((order) => Number(order.id))
-      .filter((id) => Number.isFinite(id) && id > 0);
-
-    if (pendingOrderIds.length === 0) return;
-
-    await Promise.allSettled(pendingOrderIds.map((orderId) => this.syncWithMercadoPago(orderId)));
+    // Placeholder for future payment synchronization
   }
+
 
   public markPaid = async (req: AuthRequest, res: Response): Promise<Response> => {
     try {
@@ -123,11 +108,9 @@ export class OrderController {
         return res.status(403).json({ error: 'Acesso negado' });
       }
 
+      // Only admins or payment confirmations can mark as paid
       if (!req.isAdmin) {
-        const pagamentoAprovado = await this.pedidoTemPagamentoAprovado(order.id);
-        if (!pagamentoAprovado) {
-          return res.status(409).json({ error: 'Pagamento ainda não foi confirmado.' });
-        }
+        return res.status(403).json({ error: 'Apenas administradores podem marcar pedidos como pagos' });
       }
 
       await order.update({ status: 'paid' });
@@ -233,136 +216,20 @@ export class OrderController {
       if (!(await this.usuarioPodeAcessarPedido(req, order))) {
         return res.status(403).json({ error: 'Acesso negado' });
       }
-      const paymentId = this.extractPaymentId(req);
 
       if (order.status === 'paid') {
         return res.json({ status: 'paid', message: 'Pedido já foi marcado como pago' });
       }
 
-      if (process.env.MERCADOPAGO_ACCESS_TOKEN) {
-        const syncResult = await this.syncWithMercadoPago(order.id, paymentId);
-        if (syncResult) {
-          return res.json({ status: 'paid', message: 'Pagamento sincronizado com sucesso' });
-        }
-      }
-
       return res.json({
         status: order.status,
-        message: 'Status sincronizado (verifique o webhook do Mercado Pago)'
+        message: 'Sincronização de pagamento desativada (modo ilustrativo)'
       });
     } catch (error) {
       return res.status(500).json({ error: 'Falha ao sincronizar pagamento' });
     }
   };
 
-  private async syncWithMercadoPago(orderId: number, paymentId?: string): Promise<boolean> {
-    try {
-      const mpPayment = new MPPayment(client);
-      if (paymentId) {
-        try {
-          const payment = await mpPayment.get({ id: paymentId });
-          if (this.isApprovedPaymentForOrder(payment, orderId)) {
-            return this.markOrderAsPaid(orderId);
-          }
-        } catch (paymentLookupError) {
-          console.warn(`Falha ao buscar pagamento ${paymentId} no MP, tentando fallback por external_reference`);
-        }
-      }
-
-      // Fallback: search by external_reference
-      const response = await mpPayment.search({ options: { external_reference: String(orderId) } });
-      const payments = response?.results || [];
-      const approvedPayment = payments.find((payment: any) => this.isApprovedPaymentForOrder(payment, orderId));
-
-      if (approvedPayment) {
-        return this.markOrderAsPaid(orderId);
-      }
-
-      const approvedFromRest = await this.searchApprovedPaymentByExternalReference(orderId);
-      if (approvedFromRest) {
-        return this.markOrderAsPaid(orderId);
-      }
-
-      return false;
-    } catch (error) {
-      console.error('Erro ao sincronizar com Mercado Pago:', error);
-      return false;
-    }
-  }
-
-  private async searchApprovedPaymentByExternalReference(orderId: number): Promise<boolean> {
-    const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
-    if (!token) return false;
-
-    const url = `https://api.mercadopago.com/v1/payments/search?external_reference=${encodeURIComponent(String(orderId))}&sort=date_created&criteria=desc&limit=50`;
-
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        console.warn(`Falha no fallback REST do MP (status ${response.status}): ${body}`);
-        return false;
-      }
-
-      const data = await response.json() as { results?: Array<{ status?: string; external_reference?: string | number }> };
-      const results = Array.isArray(data?.results) ? data.results : [];
-      return results.some((payment) => this.isApprovedPaymentForOrder(payment, orderId));
-    } catch (error) {
-      console.warn('Erro no fallback REST do MP:', error);
-      return false;
-    }
-  }
-
-  private extractPaymentId(req: Request) {
-    const query = req.query as Record<string, string | undefined>;
-    return query.payment_id || query.paymentId || undefined;
-  }
-
-  public async buscarPedidoPorId(orderId: number) {
-    return Order.findByPk(orderId);
-  }
-
-  private async usuarioPodeAcessarPedido(req: AuthRequest, order: Order) {
-    if (!req.userId) return false;
-    if (req.isAdmin) return true;
-    return Number(order.customer_id) === Number(req.userId);
-  }
-
-  private async pedidoTemPagamentoAprovado(orderId: number) {
-    const approvedPayment = await Payment.findOne({ where: { order_id: orderId, status: 'approved' } });
-    if (approvedPayment) return true;
-
-    const approvedWebhook = await PaymentWebhook.findOne({
-      where: { order_id: orderId, mercado_pago_status: 'approved' }
-    });
-
-    return Boolean(approvedWebhook);
-  }
-
-  private isApprovedPaymentForOrder(payment: any, orderId: number) {
-    if (payment?.status !== 'approved') return false;
-    const externalReference = payment?.external_reference;
-    if (externalReference == null || externalReference === '') return true;
-    return String(externalReference) === String(orderId);
-  }
-
-  private async markOrderAsPaid(orderId: number): Promise<boolean> {
-    const order = await Order.findByPk(orderId);
-    if (order && order.status !== 'paid') {
-      await order.update({ status: 'paid' });
-      console.log(`✅ Pedido ${orderId} marcado como pago via sincronização Mercado Pago`);
-      return true;
-    }
-
-    return Boolean(order?.status === 'paid');
-  }
 
   private async salvarPedido(
     body: CorpoPedido,
@@ -455,19 +322,7 @@ export class OrderController {
   }
 
   private async gerarPagamento(order: Order, body: CorpoPedido): Promise<RespostaPagamento> {
-    if (body.paymentMethod === 'illustrative') {
-      return this.gerarPagamentoIlustrativo(order);
-    }
-
-    if (!process.env.MERCADOPAGO_ACCESS_TOKEN) return this.gerarMockPreference(order.id);
-    try {
-      return await this.criarPreferenciaMercadoPago(order, body);
-    } catch (err) {
-      throw new Error(this.logAndNormalizeMpError(err as Error | string | number | boolean | object | null | undefined));
-    }
-  }
-
-  private async gerarPagamentoIlustrativo(order: Order): Promise<RespostaPagamento> {
+    // All orders now use illustrative (mock) payment mode
     if (order.status !== 'paid') {
       await order.update({ status: 'paid' });
     }
@@ -477,33 +332,23 @@ export class OrderController {
       init_point: null,
       preference_id: null,
       mode: 'illustrative',
-      warning: 'Pagamento confirmado via site.',
+      warning: 'Pagamento confirmado no site.',
     };
   }
 
-  private logAndNormalizeMpError(err: Error | string | number | boolean | object | null | undefined) {
-    const message = this.normalizarErro(err);
-    console.error('ERRO MERCADO PAGO:', message);
-    return message;
+  private async buscarUsuarioAutenticado(userId?: number) {
+    if (!userId) return null;
+    return User.findByPk(userId);
   }
 
-  private async criarPreferenciaMercadoPago(order: Order, body: CorpoPedido): Promise<RespostaPagamento> {
-    const preference = new Preference(client);
-    let preferenceBody = this.montarCorpoPreferencia(order, body);
-    
-    try {
-      const res = await preference.create({ body: preferenceBody });
-      return { orderId: order.id, init_point: res.init_point || null, preference_id: res.id || null };
-    } catch (err: any) {
-      const errMsg = this.normalizarErro(err);
-      if (errMsg.includes('auto_return invalid') || errMsg.includes('back_url')) {
-        delete preferenceBody.auto_return;
-        delete preferenceBody.autoReturn;
-        const resFallback = await preference.create({ body: preferenceBody });
-        return { orderId: order.id, init_point: resFallback.init_point || null, preference_id: resFallback.id || null };
-      }
-      throw err;
-    }
+  private async usuarioPodeAcessarPedido(req: AuthRequest, order: Order) {
+    if (!req.userId) return false;
+    if (req.isAdmin) return true;
+    return Number(order.customer_id) === Number(req.userId);
+  }
+
+  public async buscarPedidoPorId(orderId: number) {
+    return Order.findByPk(orderId);
   }
 
   private normalizarErro(err: Error | string | number | boolean | object | null | undefined): string {
@@ -517,76 +362,7 @@ export class OrderController {
     if (!['pending', 'paid', 'shipped', 'delivered', 'cancelled'].includes(normalized)) {
       return null;
     }
-
     return normalized as StatusPedido;
-  }
-
-  private gerarMockPreference(orderId: number): RespostaPagamento {
-    return {
-      orderId, preference_id: `SANDBOX-${orderId}-${Date.now()}`, mode: 'mock',
-      init_point: `https://www.mercadopago.com.br/checkout/v1/redirect?preference-id=SANDBOX-${orderId}`,
-    };
-  }
-
-  private montarCorpoPreferencia(order: Order, body: CorpoPedido) {
-    const urls = this.montarUrlsRetorno(order.id);
-    
-    const items: any[] = body.items.map(it => ({ 
-      id: String(it.productId), 
-      title: it.productName || 'Produto', 
-      quantity: Number(it.quantity) || 1, 
-      currency_id: 'BRL', 
-      unit_price: Number(it.price) 
-    }));
-
-    if (order.discount_amount && order.discount_amount > 0) {
-      items.push({
-        id: 'discount',
-        title: `Desconto${order.coupon_code ? ` (${order.coupon_code})` : ''}`,
-        quantity: 1,
-        currency_id: 'BRL',
-        unit_price: -Number(order.discount_amount),
-      });
-    }
-
-    return {
-      items,
-      payer: this.montarPagador(body), 
-      external_reference: String(order.id), // Use snake_case as per Mercado Pago API
-      back_urls: urls, // Use snake_case as per Mercado Pago API
-      auto_return: 'approved',
-    } as any;
-  }
-
-  private montarPagador(body: CorpoPedido) {
-    const parts = (body.customerName || '').trim().split(' ');
-    return {
-      email: body.customerEmail || 'teste@teste.com',
-      name: parts[0] || 'Cliente', surname: parts.slice(1).join(' ').trim() || 'Cliente',
-      identification: body.customerCpf ? { type: 'CPF', number: body.customerCpf.replace(/\D/g, '') } : undefined,
-    };
-  }
-
-  private montarUrlsRetorno(orderId: number) {
-    const frontUrl = this.obterBaseUrl();
-    return {
-      success: `${frontUrl}/order-success?order_id=${orderId}`,
-      failure: `${frontUrl}/order-success?order_id=${orderId}`,
-      pending: `${frontUrl}/order-success?order_id=${orderId}`,
-    };
-  }
-
-  private obterBaseUrl(): string {
-    let base = (process.env.FRONT_URL || '').trim();
-    if (!base) base = 'http://localhost:3000';
-    base = base.replace(/\/+$/g, '');
-    if (!/^https?:\/\//i.test(base)) base = 'http://' + base;
-    return base;
-  }
-
-  private async buscarUsuarioAutenticado(userId?: number) {
-    if (!userId) return null;
-    return User.findByPk(userId);
   }
 
   private async buscarPedidos(userId?: string) {

@@ -10,13 +10,8 @@ import { CouponController } from '../controllers/CouponController';
 import { ProductController } from '../controllers/ProductController';
 import { Product } from '../models/Produtos';
 import { OrderItem } from '../models/OrderItem';
-import { MercadoPagoConfig, Payment as MPPayment } from 'mercadopago';
 import { authMiddleware } from '../middleware/auth';
 import { authAdminMiddleware } from '../middleware/authAdmin';
-
-const client = new MercadoPagoConfig({ 
-  accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN || '' 
-});
 
 const router = Router();
 const userCtrl = new UserController();
@@ -28,20 +23,6 @@ const supplierCtrl = new SupplierController();
 const shippingCtrl = new ShippingMethodController();
 const couponCtrl = new CouponController();
 const productCtrl = new ProductController();
-
-router.get('/mercadopago/check', authAdminMiddleware, async (req: Request, res: Response) => {
-  const token = process.env.MERCADOPAGO_ACCESS_TOKEN;
-  if (!token) return res.status(400).json({ ok: false, error: 'Token não configurado' });
-
-  try {
-    const paymentClient = new MPPayment(client);
-    const searchResult = await paymentClient.search({}); 
-    return res.json({ ok: true, message: 'Credencial válida', searchResult });
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : 'Erro desconhecido';
-    return res.status(500).json({ ok: false, error: errorMsg });
-  }
-});
 
 router.get('/welcome', (req: Request, res: Response) => res.send('welcome'));
 
@@ -159,8 +140,6 @@ router.post('/downloads/request', authMiddleware, async (req: Request, res: Resp
   return res.status(404).json({ error: 'Token de download não encontrado ou expirado.' });
 });
 
-router.get('/notifications/mercadopago', (req: Request, res: Response) => paymentCtrl.handleNotification(req, res));
-router.post('/notifications/mercadopago', (req: Request, res: Response) => paymentCtrl.handleNotification(req, res));
 router.get('/orders/:id/payment-status', authMiddleware, (req: Request, res: Response) => paymentCtrl.getPaymentStatus(req, res));
 
 export default router;

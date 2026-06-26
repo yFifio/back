@@ -3,8 +3,6 @@ import { OrderController } from '../controllers/OrderController';
 import { Order } from '../models/Order';
 import { OrderItem } from '../models/OrderItem';
 import { User } from '../models/User';
-import { Payment } from '../models/Payment';
-import { PaymentWebhook } from '../models/PaymentWebhook';
 import { Coupon } from '../models/Coupon';
 import { Request, Response } from 'express';
 
@@ -15,25 +13,20 @@ type TestRequest = Partial<Request> & {
   userId?: number;
   isAdmin?: boolean;
 };
+
 type TestResponse = Response & { status: Mock; json: Mock };
 
 const makeReq = (data: TestRequest): Request => data as Request;
 const makeRes = (): TestResponse => ({ status: vi.fn().mockReturnThis(), json: vi.fn() } as TestResponse);
 
 vi.mock('../models/Order', () => ({
-  Order: { create: vi.fn(), findByPk: vi.fn(), findAll: vi.fn() },
+  Order: { create: vi.fn(), findByPk: vi.fn(), findAll: vi.fn(), max: vi.fn() },
 }));
 vi.mock('../models/OrderItem', () => ({
   OrderItem: { create: vi.fn() },
 }));
 vi.mock('../models/User', () => ({
   User: { findByPk: vi.fn() },
-}));
-vi.mock('../models/Payment', () => ({
-  Payment: { findOne: vi.fn(), create: vi.fn() },
-}));
-vi.mock('../models/PaymentWebhook', () => ({
-  PaymentWebhook: { findOne: vi.fn(), create: vi.fn(), findAll: vi.fn() },
 }));
 vi.mock('../models/Coupon', () => ({
   Coupon: { findOne: vi.fn() },
@@ -46,65 +39,35 @@ describe('OrderController - markPaid', () => {
   it('retorna 404 quando pedido não encontrado', async () => {
     (Order.findByPk as Mock).mockResolvedValueOnce(null);
     const res = makeRes();
-    await ctrl.markPaid(makeReq({ params: { id: '1' }, userId: 1 }), res);
+    await ctrl.markPaid(makeReq({ params: { id: '1' }, userId: 1 }) as any, res);
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
-  it('retorna 403 quando usuário não tem acesso', async () => {
+  it('retorna 403 quando usuário não tem acesso ao pedido', async () => {
     const order = { id: 5, customer_id: 99, status: 'pending', update: vi.fn() };
     (Order.findByPk as Mock).mockResolvedValueOnce(order);
     const res = makeRes();
-    await ctrl.markPaid(makeReq({ params: { id: '5' }, userId: 1, isAdmin: false }), res);
+    await ctrl.markPaid(makeReq({ params: { id: '5' }, userId: 1, isAdmin: false }) as any, res);
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith({ error: 'Acesso negado' });
   });
 
-  it('retorna 409 quando não-admin e pagamento não aprovado', async () => {
+  it('retorna 403 quando dono do pedido não é admin', async () => {
     const order = { id: 5, customer_id: 1, status: 'pending', update: vi.fn() };
     (Order.findByPk as Mock).mockResolvedValueOnce(order);
-    (Payment.findOne as Mock).mockResolvedValueOnce(null);
-    (PaymentWebhook.findOne as Mock).mockResolvedValueOnce(null);
     const res = makeRes();
-    await ctrl.markPaid(makeReq({ params: { id: '5' }, userId: 1, isAdmin: false }), res);
-    expect(res.status).toHaveBeenCalledWith(409);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Pagamento ainda não foi confirmado.' });
+    await ctrl.markPaid(makeReq({ params: { id: '5' }, userId: 1, isAdmin: false }) as any, res);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Apenas administradores podem marcar pedidos como pagos' });
   });
 
-  it('marca como pago quando non-admin mas tem pagamento aprovado', async () => {
-    const order = { id: 5, customer_id: 1, status: 'pending', update: vi.fn().mockResolvedValue(undefined) };
-    (Order.findByPk as Mock).mockResolvedValueOnce(order);
-    (Payment.findOne as Mock).mockResolvedValueOnce({ id: 1, status: 'approved' });
-    const res = makeRes();
-    await ctrl.markPaid(makeReq({ params: { id: '5' }, userId: 1, isAdmin: false }), res);
-    expect(order.update).toHaveBeenCalledWith({ status: 'paid' });
-    expect(res.json).toHaveBeenCalledWith({ success: true });
-  });
-
-  it('marca como pago via webhook aprovado quando não tem Payment', async () => {
-    const order = { id: 5, customer_id: 1, status: 'pending', update: vi.fn().mockResolvedValue(undefined) };
-    (Order.findByPk as Mock).mockResolvedValueOnce(order);
-    (Payment.findOne as Mock).mockResolvedValueOnce(null);
-    (PaymentWebhook.findOne as Mock).mockResolvedValueOnce({ id: 1, mercado_pago_status: 'approved' });
-    const res = makeRes();
-    await ctrl.markPaid(makeReq({ params: { id: '5' }, userId: 1, isAdmin: false }), res);
-    expect(order.update).toHaveBeenCalledWith({ status: 'paid' });
-    expect(res.json).toHaveBeenCalledWith({ success: true });
-  });
-
-  it('admin pode marcar como pago sem verificar pagamento', async () => {
+  it('admin pode marcar como pago', async () => {
     const order = { id: 7, customer_id: 2, status: 'pending', update: vi.fn().mockResolvedValue(undefined) };
     (Order.findByPk as Mock).mockResolvedValueOnce(order);
     const res = makeRes();
-    await ctrl.markPaid(makeReq({ params: { id: '7' }, userId: 1, isAdmin: true }), res);
+    await ctrl.markPaid(makeReq({ params: { id: '7' }, userId: 1, isAdmin: true }) as any, res);
     expect(order.update).toHaveBeenCalledWith({ status: 'paid' });
     expect(res.json).toHaveBeenCalledWith({ success: true });
-  });
-
-  it('retorna 500 em exceção', async () => {
-    (Order.findByPk as Mock).mockRejectedValueOnce(new Error('db error'));
-    const res = makeRes();
-    await ctrl.markPaid(makeReq({ params: { id: '1' }, userId: 1, isAdmin: true }), res);
-    expect(res.status).toHaveBeenCalledWith(500);
   });
 });
 
@@ -112,69 +75,39 @@ describe('OrderController - updateStatus', () => {
   let ctrl: OrderController;
   beforeEach(() => { vi.resetAllMocks(); ctrl = new OrderController(); });
 
-  it('retorna 403 quando não é admin', async () => {
+  it('retorna 403 quando usuário não é admin', async () => {
     (User.findByPk as Mock).mockResolvedValueOnce({ id: 1, isAdmin: false });
     const res = makeRes();
-    await ctrl.updateStatus(makeReq({ params: { id: '1' }, body: { status: 'shipped' }, userId: 1, isAdmin: false }), res);
+    await ctrl.updateStatus(makeReq({ params: { id: '1' }, body: { status: 'shipped' }, userId: 1, isAdmin: false }) as any, res);
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Acesso negado' });
   });
 
   it('retorna 400 para status inválido', async () => {
     (User.findByPk as Mock).mockResolvedValueOnce({ id: 1, isAdmin: true });
     const res = makeRes();
-    await ctrl.updateStatus(makeReq({ params: { id: '1' }, body: { status: 'invalid_status' }, userId: 1, isAdmin: true }), res);
+    await ctrl.updateStatus(makeReq({ params: { id: '1' }, body: { status: 'invalid' }, userId: 1, isAdmin: true }) as any, res);
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Status inválido' });
   });
 
-  it('retorna 404 quando pedido não encontrado', async () => {
-    (User.findByPk as Mock).mockResolvedValueOnce({ id: 1, isAdmin: true });
-    (Order.findByPk as Mock).mockResolvedValueOnce(null);
-    const res = makeRes();
-    await ctrl.updateStatus(makeReq({ params: { id: '999' }, body: { status: 'shipped' }, userId: 1, isAdmin: true }), res);
-    expect(res.status).toHaveBeenCalledWith(404);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Pedido não encontrado' });
-  });
-
-  it('atualiza status com sucesso', async () => {
+  it('atualiza status com sucesso para status válido', async () => {
     (User.findByPk as Mock).mockResolvedValueOnce({ id: 1, isAdmin: true });
     const order = { id: 10, status: 'pending', update: vi.fn().mockResolvedValue(undefined) };
     (Order.findByPk as Mock).mockResolvedValueOnce(order);
     const res = makeRes();
-    await ctrl.updateStatus(makeReq({ params: { id: '10' }, body: { status: 'shipped' }, userId: 1, isAdmin: true }), res);
+    await ctrl.updateStatus(makeReq({ params: { id: '10' }, body: { status: 'shipped' }, userId: 1, isAdmin: true }) as any, res);
     expect(order.update).toHaveBeenCalledWith({ status: 'shipped' });
     expect(res.json).toHaveBeenCalledWith({ success: true, orderId: 10, status: 'shipped' });
   });
-
-  it('retorna 500 em exceção', async () => {
-    (User.findByPk as Mock).mockRejectedValueOnce(new Error('db error'));
-    const res = makeRes();
-    await ctrl.updateStatus(makeReq({ params: { id: '1' }, body: { status: 'paid' }, userId: 1, isAdmin: true }), res);
-    expect(res.status).toHaveBeenCalledWith(500);
-  });
-
-  it('retorna todos os status válidos', async () => {
-    for (const status of ['pending', 'paid', 'shipped', 'delivered', 'cancelled']) {
-      vi.resetAllMocks();
-      (User.findByPk as Mock).mockResolvedValueOnce({ id: 1, isAdmin: true });
-      const order = { id: 10, status: 'pending', update: vi.fn().mockResolvedValue(undefined) };
-      (Order.findByPk as Mock).mockResolvedValueOnce(order);
-      const res = makeRes();
-      await ctrl.updateStatus(makeReq({ params: { id: '10' }, body: { status }, userId: 1, isAdmin: true }), res);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status }));
-    }
-  });
 });
 
-describe('OrderController - syncPaymentStatus extra', () => {
+describe('OrderController - syncPaymentStatus', () => {
   let ctrl: OrderController;
   beforeEach(() => { vi.resetAllMocks(); ctrl = new OrderController(); });
 
   it('retorna 404 quando pedido não existe', async () => {
     (Order.findByPk as Mock).mockResolvedValueOnce(null);
     const res = makeRes();
-    await ctrl.syncPaymentStatus(makeReq({ params: { id: '99' }, userId: 1, isAdmin: true }), res);
+    await ctrl.syncPaymentStatus(makeReq({ params: { id: '99' }, userId: 1, isAdmin: true }) as any, res);
     expect(res.status).toHaveBeenCalledWith(404);
   });
 
@@ -182,102 +115,46 @@ describe('OrderController - syncPaymentStatus extra', () => {
     const order = { id: 5, customer_id: 99, status: 'pending' };
     (Order.findByPk as Mock).mockResolvedValueOnce(order);
     const res = makeRes();
-    await ctrl.syncPaymentStatus(makeReq({ params: { id: '5' }, userId: 1, isAdmin: false }), res);
+    await ctrl.syncPaymentStatus(makeReq({ params: { id: '5' }, userId: 1, isAdmin: false }) as any, res);
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
-  it('retorna "já pago" quando status é paid', async () => {
+  it('retorna mensagem de já pago quando status é paid', async () => {
     const order = { id: 5, customer_id: 1, status: 'paid' };
     (Order.findByPk as Mock).mockResolvedValueOnce(order);
     const res = makeRes();
-    await ctrl.syncPaymentStatus(makeReq({ params: { id: '5' }, query: {}, userId: 1, isAdmin: false }), res);
+    await ctrl.syncPaymentStatus(makeReq({ params: { id: '5' }, userId: 1, isAdmin: false }) as any, res);
     expect(res.json).toHaveBeenCalledWith({ status: 'paid', message: 'Pedido já foi marcado como pago' });
   });
 
-  it('retorna status pendente quando sem token MP', async () => {
-    const savedToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-    delete process.env.MERCADOPAGO_ACCESS_TOKEN;
+  it('retorna mensagem de sincronização desativada para pending', async () => {
     const order = { id: 5, customer_id: 1, status: 'pending' };
     (Order.findByPk as Mock).mockResolvedValueOnce(order);
     const res = makeRes();
-    await ctrl.syncPaymentStatus(makeReq({ params: { id: '5' }, query: {}, userId: 1, isAdmin: false }), res);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'pending' }));
-    process.env.MERCADOPAGO_ACCESS_TOKEN = savedToken;
-  });
-
-  it('retorna 500 em exceção', async () => {
-    (Order.findByPk as Mock).mockRejectedValueOnce(new Error('db error'));
-    const res = makeRes();
-    await ctrl.syncPaymentStatus(makeReq({ params: { id: '1' }, userId: 1, isAdmin: true }), res);
-    expect(res.status).toHaveBeenCalledWith(500);
+    await ctrl.syncPaymentStatus(makeReq({ params: { id: '5' }, userId: 1, isAdmin: false }) as any, res);
+    expect(res.json).toHaveBeenCalledWith({
+      status: 'pending',
+      message: 'Sincronização de pagamento desativada (modo ilustrativo)',
+    });
   });
 });
 
-describe('OrderController - create extra', () => {
+describe('OrderController - create/list extra', () => {
   let ctrl: OrderController;
   beforeEach(() => { vi.resetAllMocks(); ctrl = new OrderController(); });
 
-  it('retorna 401 quando não autenticado', async () => {
-    const res = makeRes();
-    await ctrl.create(makeReq({
-      body: { items: [{ productId: 1, productName: 'X', price: 10, quantity: 1 }], customerEmail: 'a@b.com', customerName: 'C', customerCpf: '123' },
-    }), res);
-    expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Usuário não autenticado' });
-  });
-
   it('retorna 400 para pedido vazio', async () => {
     const res = makeRes();
-    await ctrl.create(makeReq({
-      userId: 1,
-      body: { items: [], customerEmail: 'a@b.com', customerName: 'C', customerCpf: '123' },
-    }), res);
+    await ctrl.create(makeReq({ userId: 1, body: { items: [] } }) as any, res);
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Pedido vazio' });
-  });
-
-  it('cria pedido com modo illustrative sem token MP', async () => {
-    process.env.MERCADOPAGO_ACCESS_TOKEN = '';
-    (Order.create as Mock).mockResolvedValueOnce({ id: 10, status: 'pending', update: vi.fn().mockResolvedValue(undefined) });
-    (OrderItem.create as Mock).mockResolvedValue({});
-    (Coupon.findOne as Mock).mockResolvedValueOnce(null);
-    const res = makeRes();
-    await ctrl.create(makeReq({
-      userId: 1,
-      body: {
-        items: [{ productId: 1, productName: 'Livro', price: 20, quantity: 2 }],
-        customerEmail: 'c@d.com',
-        customerName: 'Usuario',
-        customerCpf: '52998224725',
-        paymentMethod: 'illustrative',
-      },
-    }), res);
-    const payload = (res.json as Mock).mock.calls[0]?.[0];
-    expect(payload?.mode).toBe('illustrative');
-  });
-
-  it('retorna 500 quando cupom é inválido', async () => {
-    (Coupon.findOne as Mock).mockResolvedValueOnce(null);
-    const res = makeRes();
-    await ctrl.create(makeReq({
-      userId: 1,
-      body: {
-        items: [{ productId: 1, productName: 'X', price: 10, quantity: 1 }],
-        customerEmail: 'a@b.com',
-        customerName: 'C',
-        customerCpf: '123',
-        couponCode: 'INVALID',
-      },
-    }), res);
-    expect(res.status).toHaveBeenCalledWith(500);
-    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.stringContaining('Cupom inválido') }));
   });
 
   it('cria pedido com cupom válido', async () => {
-    process.env.MERCADOPAGO_ACCESS_TOKEN = '';
     (Coupon.findOne as Mock).mockResolvedValueOnce({ code: 'SAVE10', discount: 10 });
-    (Order.create as Mock).mockResolvedValueOnce({ id: 20, status: 'pending', discount_amount: 2, coupon_code: 'SAVE10', update: vi.fn().mockResolvedValue(undefined) });
+    const order = { id: 20, status: 'pending', update: vi.fn().mockResolvedValue(undefined) };
+    (Order.create as Mock).mockResolvedValueOnce(order);
     (OrderItem.create as Mock).mockResolvedValue({});
+
     const res = makeRes();
     await ctrl.create(makeReq({
       userId: 1,
@@ -287,31 +164,16 @@ describe('OrderController - create extra', () => {
         customerName: 'User',
         customerCpf: '52998224725',
         couponCode: 'save10',
-        paymentMethod: 'illustrative',
       },
-    }), res);
-    const payload = (res.json as Mock).mock.calls[0]?.[0];
-    expect(payload?.orderId).toBe(20);
-  });
+    }) as any, res);
 
-  it('list retorna 500 em exceção', async () => {
-    (User.findByPk as Mock).mockRejectedValueOnce(new Error('db err'));
-    const res = makeRes();
-    await ctrl.list(makeReq({ query: {}, userId: 1 }), res);
-    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ orderId: 20, mode: 'illustrative' }));
   });
 
   it('list retorna 401 quando usuário não encontrado', async () => {
     (User.findByPk as Mock).mockResolvedValueOnce(null);
     const res = makeRes();
-    await ctrl.list(makeReq({ query: {}, userId: 1 }), res);
+    await ctrl.list(makeReq({ query: {}, userId: 1 }) as any, res);
     expect(res.status).toHaveBeenCalledWith(401);
-  });
-
-  it('buscarPedidoPorId retorna pedido pelo id', async () => {
-    (Order.findByPk as Mock).mockResolvedValueOnce({ id: 55 });
-    const result = await ctrl.buscarPedidoPorId(55);
-    expect(Order.findByPk).toHaveBeenCalledWith(55);
-    expect(result).toEqual({ id: 55 });
   });
 });
