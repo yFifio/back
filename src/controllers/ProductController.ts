@@ -80,7 +80,35 @@ export class ProductController {
   }
 
   private async createProduct(payload: Request['body']) {
-    return Product.create(payload);
+    try {
+      return await Product.create(payload);
+    } catch (error) {
+      if (this.isMissingDefaultIdError(error)) {
+        const nextId = await this.getNextProductId();
+        return Product.create({ ...payload, id: nextId });
+      }
+      throw error;
+    }
+  }
+
+  private async getNextProductId(): Promise<number> {
+    const maxId = await Product.max('id');
+    const numericMax = Number(maxId || 0);
+    return Number.isFinite(numericMax) ? numericMax + 1 : 1;
+  }
+
+  private isMissingDefaultIdError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const maybeError = error as {
+      message?: string;
+      parent?: { code?: string; sqlMessage?: string };
+      original?: { code?: string; sqlMessage?: string };
+    };
+    const dbCode = maybeError.parent?.code || maybeError.original?.code;
+    const dbMessage = String(
+      maybeError.parent?.sqlMessage || maybeError.original?.sqlMessage || maybeError.message || ''
+    );
+    return dbCode === 'ER_NO_DEFAULT_FOR_FIELD' || dbMessage.includes("Field 'id' doesn't have a default value");
   }
 
   private async updateProduct(id: string, payload: Request['body']) {

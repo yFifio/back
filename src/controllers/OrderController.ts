@@ -361,7 +361,36 @@ export class OrderController {
     body: CorpoPedido,
     pricing: { subtotal: number; discountAmount: number; finalTotal: number; couponCode: string | null }
   ): Promise<Order> {
-    return Order.create(this.montarPayloadPedido(body, pricing));
+    const payload = this.montarPayloadPedido(body, pricing);
+    try {
+      return await Order.create(payload);
+    } catch (error) {
+      if (this.isMissingDefaultIdError(error)) {
+        const nextId = await this.getNextOrderId();
+        return Order.create({ ...payload, id: nextId });
+      }
+      throw error;
+    }
+  }
+
+  private async getNextOrderId(): Promise<number> {
+    const maxId = await Order.max('id');
+    const numericMax = Number(maxId || 0);
+    return Number.isFinite(numericMax) ? numericMax + 1 : 1;
+  }
+
+  private isMissingDefaultIdError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const maybeError = error as {
+      message?: string;
+      parent?: { code?: string; sqlMessage?: string };
+      original?: { code?: string; sqlMessage?: string };
+    };
+    const dbCode = maybeError.parent?.code || maybeError.original?.code;
+    const dbMessage = String(
+      maybeError.parent?.sqlMessage || maybeError.original?.sqlMessage || maybeError.message || ''
+    );
+    return dbCode === 'ER_NO_DEFAULT_FOR_FIELD' || dbMessage.includes("Field 'id' doesn't have a default value");
   }
 
   private montarPayloadPedido(
