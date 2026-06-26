@@ -125,4 +125,4 @@ const start = async () => {
   iniciarServidor(portaInicial, maxTentativas);
 };
 
-start();
+start();// Alteração de teste
