@@ -145,7 +145,35 @@ export class UserController {
 
   private async criarUsuario(body: Partial<User> & { senha?: string }) {
     const hashed = await bcrypt.hash(body.senha || '', 10);
-    return User.create({ ...body, senha: hashed, isAdmin: false } as User);
+    try {
+      return await User.create({ ...body, senha: hashed, isAdmin: false } as User);
+    } catch (error) {
+      if (this.isMissingDefaultIdError(error)) {
+        const nextId = await this.getNextUserId();
+        return User.create({ ...body, senha: hashed, isAdmin: false, id: nextId } as User);
+      }
+      throw error;
+    }
+  }
+
+  private async getNextUserId(): Promise<number> {
+    const maxId = await User.max('id');
+    const numericMax = Number(maxId || 0);
+    return Number.isFinite(numericMax) ? numericMax + 1 : 1;
+  }
+
+  private isMissingDefaultIdError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const maybeError = error as {
+      message?: string;
+      parent?: { code?: string; sqlMessage?: string };
+      original?: { code?: string; sqlMessage?: string };
+    };
+    const dbCode = maybeError.parent?.code || maybeError.original?.code;
+    const dbMessage = String(
+      maybeError.parent?.sqlMessage || maybeError.original?.sqlMessage || maybeError.message || ''
+    );
+    return dbCode === 'ER_NO_DEFAULT_FOR_FIELD' || dbMessage.includes("Field 'id' doesn't have a default value");
   }
 
   private generateAuthResponse(user: User) {

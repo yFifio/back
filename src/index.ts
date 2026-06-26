@@ -26,6 +26,9 @@ const configurarRotas = () => {
   app.get('/health', (_req: Request, res: Response) => {
     res.status(200).send('healthy');
   });
+  app.get('/api/health', (_req: Request, res: Response) => {
+    res.status(200).send('healthy');
+  });
 };
 
 const logRouteNotFound = (res: Response) => res.status(404).json({ error: 'Rota não existe' });
