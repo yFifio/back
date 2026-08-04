@@ -29,16 +29,30 @@ export class ProductController {
 
   create = async (req: Request, res: Response) => {
     try {
-      const { name, price } = req.body || {};
+      const { name, price, categoryId } = req.body || {};
       if (!name || String(name).trim().length === 0) {
         return res.status(400).json({ error: 'Nome do produto é obrigatório' });
       }
       if (price === undefined || price === null || isNaN(Number(price)) || Number(price) < 0) {
         return res.status(400).json({ error: 'Preço inválido' });
       }
+      
+      // Se categoryId foi enviado, validar se existe
+      if (categoryId && Number(categoryId) > 0) {
+        const { Category } = await import('../models/Category');
+        const catExists = await Category.findByPk(categoryId);
+        if (!catExists) {
+          return res.status(400).json({ error: `Categoria com ID ${categoryId} não existe` });
+        }
+      }
+      
       return res.status(201).json(await this.createProduct(req.body));
-    } catch {
-      return res.status(500).json({ error: 'Erro ao criar produto' });
+    } catch (error) {
+      console.error('❌ Erro ao criar produto:', error instanceof Error ? error.message : error);
+      if (error instanceof Error && error.message.includes('Field')) {
+        return res.status(400).json({ error: `Campo inválido: ${error.message}` });
+      }
+      return res.status(500).json({ error: 'Erro ao criar produto', details: error instanceof Error ? error.message : String(error) });
     }
   }
 
@@ -81,10 +95,13 @@ export class ProductController {
 
   private async createProduct(payload: Request['body']) {
     try {
+      console.log('📦 Creating product with payload:', JSON.stringify(payload, null, 2));
       return await Product.create(payload);
     } catch (error) {
+      console.error('❌ Error in Product.create():', error instanceof Error ? error.message : error);
       if (this.isMissingDefaultIdError(error)) {
         const nextId = await this.getNextProductId();
+        console.log('🔄 Retrying with ID:', nextId);
         return Product.create({ ...payload, id: nextId });
       }
       throw error;

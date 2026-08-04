@@ -100,7 +100,7 @@ describe('ProductController', () => {
     const res = makeRes();
     await ctrl.create(makeReq({ body: { name: 'X', price: 10 } }), res);
     expect(res.status).toHaveBeenCalledWith(500);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Erro ao criar produto' });
+    expect(res.json).toHaveBeenCalledWith({ error: 'Erro ao criar produto', details: 'fail' });
   });
 
   // update

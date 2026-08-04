@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import http from 'http';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 import sequelize from './config/database';
 import apiRoutes from './routes/api.routes';
 import { setDbConnected } from './utils/appState';
@@ -15,10 +16,20 @@ import { PaymentWebhook } from './models/PaymentWebhook';
 dotenv.config();
 const app = express();
 
+const corsOrigins = (process.env.CORS_ORIGINS || 'http://localhost:8080,http://127.0.0.1:8080')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 const configurarMiddlewares = () => {
-  app.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], allowedHeaders: ["Content-Type", "Authorization"] }));
+  app.use(cors({
+    origin: corsOrigins,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+  }));
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+  app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
 };
 
 const configurarRotas = () => {
@@ -94,35 +105,23 @@ const start = async () => {
   configurarErros();
   
   const dbLigado = await conectarBanco();
-  const portaInicial = Number(process.env.PORT || 3001);
-  const maxTentativas = 10;
+  const porta = 3001;
+  const server = http.createServer(app);
 
-  const iniciarServidor = (porta: number, tentativasRestantes: number) => {
-    const server = http.createServer(app);
-
-    server.on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE' && tentativasRestantes > 0) {
-        console.warn(`⚠️ Porta ${porta} em uso. Tentando porta ${porta + 1}...`);
-        iniciarServidor(porta + 1, tentativasRestantes - 1);
-        return;
-      }
-
-      if (err.code === 'EADDRINUSE') {
-        console.error(`❌ Não foi possível iniciar a API. Portas de ${portaInicial} até ${porta} estão ocupadas.`);
-        console.log(`💡 Verifique processos com: lsof -nP -iTCP:${portaInicial} -sTCP:LISTEN`);
-        process.exit(1);
-      }
-
-      console.error('❌ Erro ao iniciar servidor:', err.message);
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`❌ Não foi possível iniciar a API. A porta ${porta} está ocupada.`);
+      console.log(`💡 Verifique processos com: lsof -nP -iTCP:${porta} -sTCP:LISTEN`);
       process.exit(1);
-    });
+    }
 
-    server.listen(porta, () => {
-      console.log(`🚀 API rodando na porta ${porta} ${dbLigado ? '' : '(Rodando SEM BANCO DE DADOS)'}`);
-    });
-  };
+    console.error('❌ Erro ao iniciar servidor:', err.message);
+    process.exit(1);
+  });
 
-  iniciarServidor(portaInicial, maxTentativas);
+  server.listen(porta, () => {
+    console.log(`🚀 API rodando na porta ${porta} ${dbLigado ? '' : '(Rodando SEM BANCO DE DADOS)'}`);
+  });
 };
 
 start();// Alteração de teste

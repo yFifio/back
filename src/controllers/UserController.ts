@@ -68,6 +68,8 @@ export class UserController {
       return this.unauthorized(res, 'Senha incorreta');
     }
 
+    await this.ensureAdminBootstrap(authResult.user);
+
     return res.json(this.generateAuthResponse(authResult.user));
   }
 
@@ -145,15 +147,32 @@ export class UserController {
 
   private async criarUsuario(body: Partial<User> & { senha?: string }) {
     const hashed = await bcrypt.hash(body.senha || '', 10);
+    const isFirstAdmin = await this.shouldGrantAdminOnSignup();
     try {
-      return await User.create({ ...body, senha: hashed, isAdmin: false } as User);
+      return await User.create({ ...body, senha: hashed, isAdmin: isFirstAdmin } as User);
     } catch (error) {
       if (this.isMissingDefaultIdError(error)) {
         const nextId = await this.getNextUserId();
-        return User.create({ ...body, senha: hashed, isAdmin: false, id: nextId } as User);
+        return User.create({ ...body, senha: hashed, isAdmin: isFirstAdmin, id: nextId } as User);
       }
       throw error;
     }
+  }
+
+  private async shouldGrantAdminOnSignup(): Promise<boolean> {
+    try {
+      const totalAdmins = await User.count({ where: { isAdmin: true } });
+      return Number(totalAdmins) === 0;
+    } catch {
+      return false;
+    }
+  }
+
+  private async ensureAdminBootstrap(user: User): Promise<void> {
+    if (user.isAdmin) return;
+    if (!(await this.shouldGrantAdminOnSignup())) return;
+    await user.update({ isAdmin: true });
+    user.isAdmin = true;
   }
 
   private async getNextUserId(): Promise<number> {
@@ -187,6 +206,7 @@ export class UserController {
   private async processarAtualizacao(user: User, body: Partial<User> & { senha?: string }) {
     const dadosSeguros = { ...body };
     delete dadosSeguros.email;
+    delete dadosSeguros.cpf;
     
     if (dadosSeguros.senha) {
       dadosSeguros.senha = await bcrypt.hash(dadosSeguros.senha, 10);

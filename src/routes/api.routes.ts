@@ -12,6 +12,7 @@ import { Product } from '../models/Produtos';
 import { OrderItem } from '../models/OrderItem';
 import { authMiddleware } from '../middleware/auth';
 import { authAdminMiddleware } from '../middleware/authAdmin';
+import { productImageUpload } from '../middleware/upload';
 
 const router = Router();
 const userCtrl = new UserController();
@@ -35,10 +36,21 @@ router.put('/users/me', authMiddleware, (req: Request, res: Response) => userCtr
 router.put('/users/:id', authAdminMiddleware, (req: Request, res: Response) => userCtrl.updateById(req, res));
 
 router.get('/products', (req: Request, res: Response) => productCtrl.list(req, res));
-router.get('/products/:id', authAdminMiddleware, (req: Request, res: Response) => productCtrl.getById(req, res));
+router.get('/products/:id', (req: Request, res: Response) => productCtrl.getById(req, res));
 router.post('/products', authAdminMiddleware, (req: Request, res: Response) => productCtrl.create(req, res));
 router.put('/products/:id', authAdminMiddleware, (req: Request, res: Response) => productCtrl.update(req, res));
 router.delete('/products/:id', authAdminMiddleware, (req: Request, res: Response) => productCtrl.delete(req, res));
+router.post('/uploads/products', authAdminMiddleware, productImageUpload.single('image'), (req: Request, res: Response) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Imagem não enviada.' });
+  }
+
+  const relativePath = `/uploads/products/${req.file.filename}`;
+  return res.status(201).json({
+    image_url: relativePath,
+    filename: req.file.filename,
+  });
+});
 
 router.get('/categories', (req: Request, res: Response) => categoryCtrl.list(req, res));
 router.post('/categories', authAdminMiddleware, (req: Request, res: Response) => categoryCtrl.create(req, res));
